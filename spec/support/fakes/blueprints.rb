@@ -6,7 +6,7 @@ Sham.define do
   crypted_password    { |index| "crypted_password-#{index}" }
   name                { |index| "name-#{index}" }
   label               { |index| "label-#{index}" }
-  password            { |index| "token-#{index}" }
+  password            { |index| "password-#{index}" }
   token               { |index| "token-#{index}" }
   provider            { |index| "provider-#{index}" }
   url                 { |index| "https://foo.com/url-#{index}" }
@@ -49,7 +49,7 @@ module VCAP::CloudController::Models
         :owning_organization => space.organization,
         :wildcard => true
       )
-      space.add_domain(d)
+      space.domains << d
       d
     end
 

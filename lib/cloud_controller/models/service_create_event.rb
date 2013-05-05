@@ -2,36 +2,23 @@
 
 module VCAP::CloudController::Models
   class ServiceCreateEvent < BillingEvent
-    export_attributes(
-      :timestamp,
-      :event_type,
-      :organization_guid,
-      :organization_name,
-      :space_guid,
-      :space_name,
-      :service_instance_guid,
-      :service_instance_name,
-      :service_guid,
-      :service_label,
-      :service_provider,
-      :service_version,
-      :service_plan_guid,
-      :service_plan_name,
-    )
+    validates :space_guid, :presence => true
+    validates :space_name, :presence => true
+    validates :service_instance_guid, :presence => true
+    validates :service_instance_name, :presence => true
+    validates :service_guid, :presence => true
+    validates :service_label, :presence => true
+    validates :service_provider, :presence => true
+    validates :service_version, :presence => true
+    validates :service_plan_guid, :presence => true
+    validates :service_plan_name, :presence => true
 
-    def validate
-      super
-      validates_presence :space_guid
-      validates_presence :space_name
-      validates_presence :service_instance_guid
-      validates_presence :service_instance_name
-      validates_presence :service_guid
-      validates_presence :service_label
-      validates_presence :service_provider
-      validates_presence :service_version
-      validates_presence :service_plan_guid
-      validates_presence :service_plan_name
-    end
+    export_attributes :timestamp, :event_type, :organization_guid,
+                      :organization_name, :space_guid, :space_name,
+                      :service_instance_guid, :service_instance_name,
+                      :service_guid, :service_label, :service_provider,
+                      :service_version, :service_plan_guid,
+                      :service_plan_name
 
     def event_type
       "service_create"

@@ -1,23 +1,34 @@
 # Copyright (c) 2009-2012 VMware, Inc.
 
 module VCAP::CloudController::Models
-  class QuotaDefinition < Sequel::Model
+  class QuotaDefinition < ActiveRecord::Base
+    include CF::ModelGuid
+    include CF::ModelRelationships
 
-    one_to_many :organizations
+    has_many :organizations, :dependent => :destroy
 
-    add_association_dependencies :organizations => :destroy
+    validates :name, :total_services, :memory_limit, :presence => true
+
+    validates :non_basic_services_allowed,
+              :inclusion => { :in => [true, false] }
+
+    validates :name, :uniqueness => true
 
     export_attributes :name, :non_basic_services_allowed, :total_services,
                       :memory_limit, :trial_db_allowed
     import_attributes :name, :non_basic_services_allowed, :total_services,
                       :memory_limit, :trial_db_allowed
 
-    def validate
-      validates_presence :name
-      validates_unique :name
-      validates_presence :non_basic_services_allowed
-      validates_presence :total_services
-      validates_presence :memory_limit
+    def self.populate_from_config(config)
+      config[:quota_definitions].each do |k, v|
+        name = k.to_s
+
+        if qd = find_by_name(name)
+          qd.update_from_hash(v)
+        else
+          create(v.merge(:name => name))
+        end
+      end
     end
 
     def self.configure(config)
@@ -25,7 +36,7 @@ module VCAP::CloudController::Models
     end
 
     def self.default
-      @default ||= QuotaDefinition[:name => @default_quota_name]
+      @default ||= QuotaDefinition.find_by_name(@default_quota_name)
     end
   end
 end

@@ -15,8 +15,8 @@ module VCAP::CloudController::ModelSpecHelper
         @obj.created_at.should be_recent
       end
 
-      it "should not have an updated_at timestamp" do
-        @obj.updated_at.should be_nil
+      it "should have a recent updated_at timestamp" do
+        @obj.updated_at.should be_recent
       end
     end
   end

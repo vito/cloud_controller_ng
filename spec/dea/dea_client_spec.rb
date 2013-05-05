@@ -49,7 +49,7 @@ module VCAP::CloudController
 
       context "with an app enabled for console support" do
         it "should enable console in the start message" do
-          @app.update(:console => true)
+          @app.update_attributes(:console => true)
           res = DeaClient.send(:start_app_message, @app)
           res[:console].should == true
         end
@@ -57,7 +57,7 @@ module VCAP::CloudController
 
       context "with an app enabled for debug support" do
         it "should pass debug mode in the start message" do
-          @app.update(:debug => "run")
+          @app.update_attributes(:debug => "run")
           res = DeaClient.send(:start_app_message, @app)
           res[:debug].should == "run"
         end
@@ -66,13 +66,13 @@ module VCAP::CloudController
 
     describe "update_uris" do
       it "does not update deas if app isn't staged" do
-        @app.update(:package_state => "PENDING")
+        @app.update_attributes(:package_state => "PENDING")
         @message_bus.should_not_receive(:publish)
         DeaClient.update_uris(@app)
       end
 
       it "sends a dea update message" do
-        @app.update(:package_state => "STAGED")
+        @app.update_attributes(:package_state => "STAGED")
         @message_bus.should_receive(:publish).with(
           "dea.update",
           json_match(

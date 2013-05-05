@@ -90,6 +90,7 @@ module VCAP::CloudController
       config = @config.dup
 
       Seeds.write_seed_data(config) if @insert_seed_data
+
       app = create_app(config)
       start_thin_server(app, config)
     end
@@ -140,6 +141,7 @@ module VCAP::CloudController
           VCAP::CloudController::HealthManagerRespondent.new(config)
         VCAP::CloudController.dea_respondent =
           VCAP::CloudController::DeaRespondent.new(config, VCAP::CloudController::MessageBus.instance)
+
         map "/" do
           run VCAP::CloudController::Controller.new(config, token_decoder)
         end

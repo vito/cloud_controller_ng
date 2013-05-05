@@ -94,9 +94,9 @@ module VCAP::CloudController::RestController
       logger.debug "dispatch: #{op}"
       check_authentication
       send(op, *args)
-    rescue Sequel::ValidationFailed => e
+    rescue ActiveRecord::RecordInvalid => e
       raise self.class.translate_validation_exception(e, request_attrs)
-    rescue Sequel::DatabaseError => e
+    rescue ActiveRecord::StatementInvalid => e
       raise self.class.translate_and_log_exception(logger, e)
     rescue JsonMessage::Error => e
       raise MessageParseError.new(e)

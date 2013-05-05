@@ -1,13 +1,25 @@
 # Copyright (c) 2009-2012 VMware, Inc.
 
 module VCAP::CloudController::Models
-  class Service < Sequel::Model
-    one_to_many :service_plans
-    one_to_one  :service_auth_token, :key => [:label, :provider], :primary_key => [:label, :provider]
+  class Service < ActiveRecord::Base
+    include CF::ModelGuid
+    include CF::ModelRelationships
 
-    add_association_dependencies :service_plans => :destroy
+    has_many :service_plans, :dependent => :destroy
 
-    default_order_by  :label
+    validates :label, :provider, :url, :description, :version,
+              :presence => true
+
+    validates :label, :uniqueness => {
+      :scope => :provider,
+      :case_sensitive => false
+    }
+
+    validate :has_fallback_unique_id
+
+    validates :url, :format => URI.regexp(%w(http https)), :allow_nil => true
+    validates :info_url, :format => URI.regexp(%w(http https)),
+              :allow_nil => true
 
     export_attributes :label, :provider, :url, :description,
                       :version, :info_url, :active, :unique_id, :extra
@@ -17,16 +29,14 @@ module VCAP::CloudController::Models
 
     strip_attributes  :label, :provider
 
-    def validate
+    def service_auth_token
+      ServiceAuthToken.where(:label => label, :provider => provider).first
+    end
+
+    private
+
+    def has_fallback_unique_id
       self.unique_id ||= "#{provider}_#{label}"
-      validates_presence :label
-      validates_presence :provider
-      validates_presence :url
-      validates_presence :description
-      validates_presence :version
-      validates_url      :url
-      validates_url      :info_url
-      validates_unique   [:label, :provider]
     end
   end
 end

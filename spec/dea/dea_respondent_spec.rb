@@ -13,7 +13,7 @@ module VCAP::CloudController
     let(:app) do
       Models::App.make(
         :instances => 2, :state => 'STARTED', :package_hash => "SOME_HASH", :package_state => "STAGED"
-      ).save
+      )
     end
 
     let(:droplet) { app.guid }
@@ -54,7 +54,7 @@ module VCAP::CloudController
             Timecop.freeze(time) do
               respondent.process_droplet_exited_message(payload)
 
-              app_event = Models::AppEvent.find(:app_id => app.id)
+              app_event = Models::AppEvent.find_by_app_id(app.id)
 
               expect(app_event).not_to be_nil
               expect(app_event.instance_guid).to eq(payload[:instance])

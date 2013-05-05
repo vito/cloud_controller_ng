@@ -10,9 +10,9 @@ module VCAP::CloudController
 
       def create_seed_quota_definitions(config)
         config[:quota_definitions].each do |k, v|
-          Models::QuotaDefinition.update_or_create(:name => k.to_s) do |r|
-            r.update_from_hash(v)
-          end
+          qd = Models::QuotaDefinition.where(:name => k.to_s).first_or_create
+          qd.attributes = v
+          qd.save!
         end
       end
 
@@ -21,15 +21,16 @@ module VCAP::CloudController
       end
 
       def create_seed_organizations(config)
-        quota_definition = Models::QuotaDefinition.find(:name => "paid")
+        quota_definition = Models::QuotaDefinition.find_by_name("paid")
 
         unless quota_definition
           raise ArgumentError, "Missing 'paid' quota definition in config file"
         end
 
-        Models::Organization.find_or_create(:name => config[:system_domain_organization]) do |org|
-          org.quota_definition = quota_definition
-        end
+        org = Models::Organization.where(:name => config[:system_domain_organization]).first_or_create
+        org.quota_definition = quota_definition
+        org.save :validate => false
+        org
       end
 
       def create_seed_domains(config, system_org)

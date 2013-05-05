@@ -29,15 +29,29 @@ module VCAP::CloudController::ApiSpecHelper
 
         context "when the object has a child associations" do
           let(:one_to_one_or_many) do
-            obj.class.associations.select do |association|
-              reflection = obj.class.association_reflection(association)
-              !reflection[:dataset] && \
-                [:one_to_many, :one_to_one].include?(reflection[:type])
+            obj.class.reflections.select do |association, meta|
+              case meta.macro
+              when :has_many
+                !obj.send(association).empty?
+              when :has_one
+                !!obj.send(association)
+              else
+                false
+              end
+            end.keys
+          end
+
+          let!(:associations_without_url) do
+            opts[:one_to_many_collection_ids_without_url].map do |key, child|
+              [key, child.call(obj)]
             end
           end
 
-          let!(:associations_without_url) { opts[:one_to_many_collection_ids_without_url].map { |key, child| [key, child.call(obj)] } }
-          let!(:associations_with_url) { opts[:one_to_many_collection_ids].map { |key, child| [key, child.call(obj)] } }
+          let!(:associations_with_url) do
+            opts[:one_to_many_collection_ids].map do |key, child|
+              [key, child.call(obj)]
+            end
+          end
 
           around { |example| example.call unless one_to_one_or_many.empty? }
 
@@ -70,7 +84,9 @@ module VCAP::CloudController::ApiSpecHelper
             it "should delete all the child associations" do
               subject
               (associations_without_url | associations_with_url).map do |name, association|
-                association.class[:id => association.id].should be_nil unless obj.class.association_reflection(name)[:type] == :many_to_many || name == :default_users
+                unless obj.class.reflections[name].macro == :has_and_belongs_to_many || name == :default_users
+                  association.class.exists?(association.id).should be_false
+                end
               end
             end
           end

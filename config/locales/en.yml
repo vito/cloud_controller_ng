@@ -1,0 +1,12 @@
+en:
+  activerecord:
+    errors:
+      models:
+        vcap/cloud_controller/models/app:
+          attributes:
+            memory:
+              quota_exceeded: >
+                You have exceeded your organization's memory limit. Please
+                login to your account and upgrade. If you are trying to
+                scale down and you are receiving this error, you can either
+                delete an app or contact support.

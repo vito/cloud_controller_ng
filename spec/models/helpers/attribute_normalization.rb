@@ -12,6 +12,7 @@ module VCAP::CloudController::ModelSpecHelper
           expected_val = "#{val}_changed"
 
           obj.send("#{attr}=", new_val)
+          obj.save
           obj.send(attr).should == expected_val
         end
 
@@ -21,6 +22,7 @@ module VCAP::CloudController::ModelSpecHelper
           expected_val = "#{val}_changed"
 
           obj.send("#{attr}=", new_val)
+          obj.save
           obj.send(attr).should == expected_val
         end
 
@@ -30,6 +32,7 @@ module VCAP::CloudController::ModelSpecHelper
           expected_val = "#{val}_changed"
 
           obj.send("#{attr}=", new_val)
+          obj.save
           obj.send(attr).should == expected_val
         end
       end

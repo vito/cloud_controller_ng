@@ -222,12 +222,14 @@ module VCAP::CloudController
       user = make_developer_for_space(space)
       @headers_for_user = headers_for(user)
       @route = space.add_domain(
-        :name => "jesse.cloud",
-        :wildcard => true,
-        :owning_organization => space.organization,
+        Models::Domain.make(
+          :name => "jesse.cloud",
+          :wildcard => true,
+          :owning_organization => space.organization)
       ).add_route(
-        :host => "foo",
-        :space => space,
+        Models::Route.make(
+          :host => "foo",
+          :space => space)
       )
       @foo_app = Models::App.make(
         :name   => "foo",

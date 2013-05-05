@@ -31,6 +31,9 @@ module VCAP::CloudController::ApiSpecHelper
       value.collect { |x| normalize_attributes(x) }
     when Numeric, nil, true, false
       value
+    when Time
+      value.to_s(
+        VCAP::CloudController::RestController::ObjectSerialization.timestamp_format)
     else
       value.to_s
     end
@@ -70,9 +73,9 @@ module VCAP::CloudController::ApiSpecHelper
       send(verb, "#{@opts[:path]}/#{obj.guid}", body, headers)
       last_response.status.should == expected_result
 
-      obj.refresh
+      obj.reload
       obj.send(get_method).length.should == expected_children.length
-      expected_children.each { |c| obj.send(get_method).should include(c.refresh) }
+      expected_children.each { |c| obj.send(get_method).should include(c.reload) }
     end
   end
 
@@ -106,7 +109,7 @@ module VCAP::CloudController::ApiSpecHelper
     describe "GET on the #{attr}_url" do
       describe "with no associated #{attr}" do
         before(:all) do
-          obj.send("remove_all_#{attr}")
+          obj.send(attr).destroy_all
           get @uri, {}, headers
         end
 
@@ -138,7 +141,7 @@ module VCAP::CloudController::ApiSpecHelper
 
       describe "with 2 associated #{attr}" do
         before(:all) do
-          obj.send("remove_all_#{attr}")
+          obj.send(attr).destroy_all
           @child1 = make.call(obj)
           @child2 = make.call(obj)
 
@@ -172,8 +175,8 @@ module VCAP::CloudController::ApiSpecHelper
 
         it "should return resources => [child1, child2]" do
           os = VCAP::CloudController::RestController::ObjectSerialization
-          ar = opts[:model].association_reflection(attr)
-          child_controller = VCAP::CloudController.controller_from_model_name(ar.associated_class.name)
+          ar = opts[:model].reflections[attr]
+          child_controller = VCAP::CloudController.controller_from_model_name(ar.klass)
 
           c1 = normalize_attributes(os.to_hash(child_controller, @child1, {}))
           c2 = normalize_attributes(os.to_hash(child_controller, @child2, {}))
@@ -334,10 +337,10 @@ module VCAP::CloudController::ApiSpecHelper
                 include_context "collections", opts, attr, make
 
                 before(:all) do
-                  obj.send("remove_all_#{attr}")
+                  obj.send(attr).destroy_all
                   51.times do
                     child = make.call(obj)
-                    obj.refresh
+                    obj.reload
                     obj.send(add_method, child)
                   end
 

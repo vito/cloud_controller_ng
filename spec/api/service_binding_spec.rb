@@ -36,7 +36,7 @@ module VCAP::CloudController
 
         post "/v2/service_bindings", req, json_headers(admin_headers)
         last_response.status.should == 201
-        app_obj.refresh
+        app_obj.reload
         app_obj.needs_staging?.should be_true
       end
 
@@ -48,7 +48,7 @@ module VCAP::CloudController
         delete "/v2/service_bindings/#{binding.guid}", {}, admin_headers
 
         last_response.status.should == 204
-        app_obj.refresh
+        app_obj.reload
         app_obj.needs_staging?.should be_true
       end
     end

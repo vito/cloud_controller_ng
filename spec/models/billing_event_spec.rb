@@ -5,7 +5,7 @@ require File.expand_path("../spec_helper", __FILE__)
 module VCAP::CloudController
   describe VCAP::CloudController::Models::BillingEvent do
     before(:all) do
-      Models::BillingEvent.delete
+      Models::BillingEvent.delete_all
       @org_event = Models::OrganizationStartEvent.make
       @app_start_event = Models::AppStartEvent.make
       @app_stop_event = Models::AppStopEvent.make
@@ -25,7 +25,7 @@ module VCAP::CloudController
       end
 
       it "should return events with the correct event_type strings" do
-        Models::BillingEvent.map(&:event_type).should == [
+        Models::BillingEvent.all.map(&:event_type).should == [
           "organization_billing_start",
           "app_start",
           "app_stop",

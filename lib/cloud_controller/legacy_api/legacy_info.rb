@@ -33,7 +33,7 @@ module VCAP::CloudController
       # raise NotAuthenticated unless user
 
       legacy_resp = {}
-      Models::Service.filter(:provider => "core").each do |svc|
+      Models::Service.where(:provider => "core").each do |svc|
         next unless svc.service_plans.any? { |plan| plan.name == "100" }
 
         svc_type = LegacyService.synthesize_service_type(svc)
@@ -61,7 +61,7 @@ module VCAP::CloudController
 
       app_num = 0
       app_mem = 0
-      default_space.apps_dataset.filter(:state => "STARTED").each do |app|
+      default_space.apps.where(:state => "STARTED").each do |app|
         app_num += 1
         app_mem += (app.memory * app.instances)
       end

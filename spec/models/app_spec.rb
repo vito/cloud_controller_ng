@@ -9,8 +9,7 @@ module VCAP::CloudController
 
     let(:domain) do
       Models::Domain.make(:owning_organization => org).tap do |d|
-        org.add_domain(d)
-        space.add_domain(d)
+        space.domains << d
       end
     end
 
@@ -40,7 +39,7 @@ module VCAP::CloudController
           domain = Models::Domain.make(
             :owning_organization => app.space.organization
           )
-          app.space.add_domain(domain)
+          app.space.domains << domain
           Models::Route.make(
             :domain => domain,
             :space => app.space
@@ -60,7 +59,7 @@ module VCAP::CloudController
 
           it "keeps previously set stack" do
             subject.save
-            subject.refresh
+            subject.reload
             subject.stack.should == stack
           end
         end
@@ -73,7 +72,7 @@ module VCAP::CloudController
 
           it "is populated with default stack" do
             subject.save
-            subject.refresh
+            subject.reload
             subject.stack.should == Models::Stack.default
           end
         end
@@ -148,7 +147,7 @@ module VCAP::CloudController
         )
 
         other_space = Models::Space.make(:organization => app.space.organization)
-        other_space.add_domain(domain)
+        other_space.domains << domain
 
         route = Models::Route.make(
           :space => other_space,
@@ -156,7 +155,7 @@ module VCAP::CloudController
         )
 
         expect {
-          app.add_route(route)
+          app.routes << route
         }.to raise_error(Models::App::InvalidRouteRelation, /URL was not available/)
       end
 
@@ -168,6 +167,8 @@ module VCAP::CloudController
         app.space.add_domain(shared_domain)
 
         other_space = Models::Space.make(:organization => app.space.organization)
+        other_space.add_domain(shared_domain)
+
         route = Models::Route.make(
           :host => Sham.host,
           :space => other_space,
@@ -175,7 +176,7 @@ module VCAP::CloudController
         )
 
         expect {
-          app.add_route(route)
+          app.routes << route
         }.to raise_error Models::App::InvalidRouteRelation
       end
     end
@@ -229,7 +230,7 @@ module VCAP::CloudController
         app.metadata.should eq("command" => "foobar")
         app.save
         app.metadata.should eq("command" => "foobar")
-        app.refresh
+        app.reload
         app.metadata.should eq("command" => "foobar")
       end
     end
@@ -240,7 +241,7 @@ module VCAP::CloudController
         app.metadata.should eq("console" => true)
         app.save
         app.metadata.should eq("console" => true)
-        app.refresh
+        app.reload
         app.metadata.should eq("console" => true)
       end
 
@@ -261,7 +262,7 @@ module VCAP::CloudController
         app.metadata.should eq("debug" => "suspend")
         app.save
         app.metadata.should eq("debug" => "suspend")
-        app.refresh
+        app.reload
         app.metadata.should eq("debug" => "suspend")
       end
 
@@ -280,12 +281,12 @@ module VCAP::CloudController
       describe "name" do
         let(:space) { Models::Space.make }
 
-        it "does not allow the same name in a different case", :skip_sqlite => true do
+        it "does not allow the same name in a different case" do
           Models::App.make(:name => "lowercase", :space => space)
 
           expect {
             Models::App.make(:name => "lowerCase", :space => space)
-          }.to raise_error(Sequel::ValidationFailed, /space_id and name/)
+          }.to raise_error(ActiveRecord::RecordInvalid)
         end
       end
 
@@ -339,7 +340,7 @@ module VCAP::CloudController
           app.metadata["some_key"].should == "some val"
           app.save
           app.metadata["some_key"].should == "some val"
-          app.refresh
+          app.reload
           app.metadata["some_key"].should == "some val"
         end
       end
@@ -472,11 +473,11 @@ module VCAP::CloudController
       end
 
       it "should update the version on update of :state" do
-        expect { app.update(:state => "STARTED") }.to change(app, :version)
+        expect { app.update_attribute(:state, "STARTED") }.to change(app, :version)
       end
 
       context "for a started app" do
-        before { app.update(:state => "STARTED") }
+        before { app.update_attribute(:state, "STARTED") }
 
         it "should update the version when changing :memory" do
           app.memory = 1024
@@ -484,7 +485,7 @@ module VCAP::CloudController
         end
 
         it "should update the version on update of :memory" do
-          expect { app.update(:memory => 999) }.to change(app, :version)
+          expect { app.update_attribute(:memory, 999) }.to change(app, :version)
         end
 
         it "should not update the version when changing :instances" do
@@ -493,7 +494,7 @@ module VCAP::CloudController
         end
 
         it "should not update the version on update of :instances" do
-          expect { app.update(:instances => 8) }.to_not change(app, :version)
+          expect { app.update_attribute(:instances, 8) }.to_not change(app, :version)
         end
       end
     end
@@ -513,7 +514,7 @@ module VCAP::CloudController
     describe "uris" do
       it "should return the uris on the app" do
         app = Models::App.make(:space => space)
-        app.add_route(route)
+        app.routes << route
         app.uris.should == [route.fqdn]
       end
     end
@@ -523,8 +524,7 @@ module VCAP::CloudController
         app = Models::App.new(:name => Sham.name,
                               :space => space,
                               :stack => Models::Stack.make)
-        app.add_route_by_guid(route.guid)
-        app.save
+        app.routes << route
         app.routes.should == [route]
       end
 
@@ -532,8 +532,10 @@ module VCAP::CloudController
         app = Models::App.new(:name => Sham.name,
                               :space => space,
                               :stack => Models::Stack.make)
-        app.add_route_by_guid(Models::Route.make.guid)
-        expect { app.save }.to raise_error(Models::App::InvalidRouteRelation)
+        route = Models::Route.make
+        expect {
+          app.routes << route
+        }.to raise_error(Models::App::InvalidRouteRelation)
         app.routes.should be_empty
       end
     end
@@ -570,10 +572,13 @@ module VCAP::CloudController
       end
 
       it "should nullify the routes" do
-        app.add_route(route)
+        app.routes << route
+
         expect {
           app.destroy
-        }.to change { route.apps }.from([app]).to([])
+        }.to change {
+          route.reload.apps.size
+        }.from(1).to(0)
       end
 
       it "should destroy all dependent service bindings" do
@@ -620,7 +625,11 @@ module VCAP::CloudController
             app = Models::App.make(:state => "STOPPED")
             Models::AppStartEvent.should_receive(:create_from_app).with(app)
             Models::AppStopEvent.should_not_receive(:create_from_app)
-            app.update(:state => "STARTED", :package_hash => "abc", :package_state => "STAGED")
+
+            app.update_attributes(
+              :state => "STARTED",
+              :package_hash => "abc",
+              :package_state => "STAGED")
           end
         end
 
@@ -629,7 +638,7 @@ module VCAP::CloudController
             app = Models::App.make(:state => "STOPPED")
             Models::AppStartEvent.should_not_receive(:create_from_app)
             Models::AppStopEvent.should_not_receive(:create_from_app)
-            app.update(:state => "STOPPED")
+            app.update_attributes(:state => "STOPPED")
           end
         end
 
@@ -638,7 +647,7 @@ module VCAP::CloudController
             app = Models::App.make(:state => "STARTED", :package_hash => "abc", :package_state => "STAGED")
             Models::AppStartEvent.should_not_receive(:create_from_app)
             Models::AppStopEvent.should_receive(:create_from_app).with(app)
-            app.update(:state => "STOPPED")
+            app.update_attributes(:state => "STOPPED")
           end
         end
 
@@ -647,7 +656,7 @@ module VCAP::CloudController
             app = Models::App.make(:state => "STARTED", :package_hash => "abc", :package_state => "STAGED")
             Models::AppStartEvent.should_not_receive(:create_from_app)
             Models::AppStopEvent.should_not_receive(:create_from_app)
-            app.update(:state => "STARTED")
+            app.update_attributes(:state => "STARTED")
           end
         end
 
@@ -676,7 +685,9 @@ module VCAP::CloudController
             end
 
             it "rolls back the deletion" do
-              expect { app.destroy rescue nil }.not_to change(app, :exists?).from(true)
+              expect {
+                app.destroy rescue nil
+              }.not_to change(app, :destroyed?).from(false)
             end
           end
 
@@ -733,20 +744,20 @@ module VCAP::CloudController
 
           def self.it_emits_app_start_and_stop_events(&block)
             it "generates a stop event for the old run_id, and start events for the new run_id" do
-              original_start_event = Models::AppStartEvent.filter(:app_guid => app.guid).all[0]
+              original_start_event = Models::AppStartEvent.find_by_app_guid(app.guid)
 
               yield(app)
 
               app.save
 
-              Models::AppStopEvent.filter(
+              Models::AppStopEvent.where(
                 :app_guid => app.guid,
                 :app_run_id => original_start_event.app_run_id
               ).count.should == 1
 
-              Models::AppStartEvent.filter(
+              Models::AppStartEvent.where(
                 :app_guid => app.guid
-              ).all.last.app_run_id.should_not == original_start_event.app_run_id
+              ).last.app_run_id.should_not == original_start_event.app_run_id
             end
           end
 
@@ -784,8 +795,7 @@ module VCAP::CloudController
             Models::App.make(:space => space,
                              :memory => 65,
                              :instances => 2)
-          end.to raise_error(Sequel::ValidationFailed,
-                             /memory quota_exceeded/)
+          end.to raise_error(ActiveRecord::RecordInvalid)
         end
 
         it "should not raise error when quota is not exceeded" do
@@ -807,8 +817,7 @@ module VCAP::CloudController
                                  :memory => 64,
                                  :instances => 2)
           app.memory = 65
-          expect { app.save }.to raise_error(Sequel::ValidationFailed,
-                                             /memory quota_exceeded/)
+          expect { app.save! }.to raise_error(ActiveRecord::RecordInvalid)
         end
 
         it "should not raise error when quota is not exceeded" do
@@ -818,7 +827,7 @@ module VCAP::CloudController
                                  :memory => 63,
                                  :instances => 2)
           app.memory = 64
-          expect { app.save }.to_not raise_error
+          expect { app.save! }.to_not raise_error
         end
 
         it "can delete an app that somehow has exceeded its memory quota" do
@@ -832,7 +841,7 @@ module VCAP::CloudController
           quota.save
 
           app.state = "STOPPED"
-          expect { app.save }.to raise_error(Sequel::ValidationFailed, /quota_exceeded/)
+          expect { app.save! }.to raise_error(ActiveRecord::RecordInvalid)
           expect { app.delete }.not_to raise_error
         end
       end
@@ -865,6 +874,7 @@ module VCAP::CloudController
       def self.it_stages
         it "stages sync" do
           AppStager.should_receive(:stage_app).with(subject, :async => false)
+
           expect {
             subject.stage_async = false
             update
@@ -882,11 +892,11 @@ module VCAP::CloudController
 
       describe "update instance count" do
         let!(:before_update_instances) { subject.instances }
-        let!(:after_update_instances) { subject.instances+1 }
+        let!(:after_update_instances) { subject.instances + 1 }
 
         def update
           subject.instances = after_update_instances
-          subject.save
+          subject.save!
         end
 
         def self.it_does_not_notify_dea
@@ -899,13 +909,17 @@ module VCAP::CloudController
 
         def self.it_notifies_dea
           it "notifies dea of update" do
-            DeaClient.should_receive(:change_running_instances).with(subject, after_update_instances)
+            delta = after_update_instances - before_update_instances
+
+            DeaClient.should_receive(:change_running_instances).with(subject, delta)
+
             MessageBus.instance.should_receive(:publish).with(
               "droplet.updated",
               json_match(hash_including(
                 "droplet" => subject.guid,
               )),
             )
+
             update
           end
         end

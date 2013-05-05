@@ -1,19 +1,17 @@
 # Copyright (c) 2009-2012 VMware, Inc.
 
-module Sequel::Plugins::VcapNormalization
+module VCAP::ModelNormalization
   module InstanceMethods
-    # Strips attributes of the model if requested.
-    def []=(k, v)
-      v = strip_if_needed(k, v)
-      super(k, v)
-    end
+    def strip_if_needed
+      attrs = self.class.strip_attrs
+      return unless attrs
 
-    private
+      attrs.each do |attr|
+        val = read_attribute(attr)
+        next unless val.respond_to?(:strip)
 
-    def strip_if_needed(k, v)
-      strip_attrs = self.class.strip_attrs || {}
-      v = v.strip if strip_attrs.include?(k) && v.respond_to?(:strip)
-      v
+        write_attribute(attr, val.strip)
+      end
     end
   end
 
@@ -24,8 +22,14 @@ module Sequel::Plugins::VcapNormalization
     # whitespace normalization.
     def strip_attributes(*attributes)
       self.strip_attrs = attributes
+      before_validation :strip_if_needed
     end
 
     attr_accessor :strip_attrs
+  end
+
+  ActiveRecord::Base.class_eval do
+    extend(ClassMethods)
+    include(InstanceMethods)
   end
 end

@@ -1,53 +1,13 @@
 require "services/api"
 
 module VCAP::CloudController::Models
-  class ServiceInstance < Sequel::Model
+  class ServiceInstance < ActiveRecord::Base
+    include CF::ModelGuid
+    include CF::ModelRelationships
+
     class InvalidServiceBinding < StandardError; end
     class MissingServiceAuthToken < StandardError; end
     class ServiceGatewayError < StandardError; end
-
-    class NGServiceGatewayClient
-      attr_accessor :service, :token, :service_id
-
-      def initialize(service, service_id)
-        @service = service
-        @token   = service.service_auth_token
-        @service_id = service_id
-        unless token
-          raise MissingServiceAuthToken, "ServiceAuthToken not found for service #{service}"
-        end
-      end
-
-      def create_snapshot(name)
-        payload = VCAP::Services::Api::CreateSnapshotV2Request.new(:name => name).encode
-        response = do_request(:post, payload)
-        VCAP::Services::Api::SnapshotV2.decode(response)
-      end
-
-      def enum_snapshots
-        list = VCAP::Services::Api::SnapshotListV2.decode(do_request(:get))
-        list.snapshots.collect{|e| VCAP::Services::Api::SnapshotV2.new(e) }
-      end
-
-      private
-
-      def do_request(method, payload=nil)
-        client = HTTPClient.new
-        u = URI.parse(service.url)
-        u.path = "/gateway/v2/configurations/#{service_id}/snapshots"
-
-        response = client.public_send(method, u,
-                                      :header => { VCAP::Services::Api::GATEWAY_TOKEN_HEADER => token.token,
-                                                   "Content-Type" => "application/json"
-                                                },
-                                      :body   => payload)
-        if response.ok?
-          response.body
-        else
-          raise ServiceGatewayError, "Service gateway upstream failure, responded with #{response.status}: #{response.body}"
-        end
-      end
-    end
 
     class << self
       def gateway_client_class
@@ -60,57 +20,35 @@ module VCAP::CloudController::Models
       end
     end
 
-    many_to_one :service_plan
-    many_to_one :space
-    one_to_many :service_bindings, :before_add => :validate_service_binding
+    belongs_to :service_plan
+    belongs_to :space
+    has_many :service_bindings, :before_add => :validate_service_binding,
+             :dependent => :destroy
 
-    add_association_dependencies :service_bindings => :destroy
+    before_create :provision_on_gateway
+    after_create :register_service_create_event
+    after_destroy :deprovision_on_gateway
+    after_destroy :register_service_delete_event
+    after_commit :invalidate_provisioned_state
+    after_rollback :reset_provisioning
 
-    attr_reader :provisioned_on_gateway_for_plan
+    validates :name, :space, :service_plan, :presence => true
 
-    default_order_by  :id
+    validates :name, :uniqueness => {
+      :scope => :space_id,
+      :case_sensitive => false
+    }
+
+    validate :must_fit_in_organization_quota
+
+    import_attributes :name, :service_plan_guid, :space_guid, :gateway_data
 
     export_attributes :name, :credentials, :service_plan_guid,
                       :space_guid, :gateway_data, :dashboard_url
 
-    import_attributes :name, :service_plan_guid,
-                      :space_guid, :gateway_data
-
     strip_attributes  :name
 
-    def validate
-      validates_presence :name
-      validates_presence :space
-      validates_presence :service_plan
-      validates_unique   [:space_id, :name]
-      check_quota
-    end
-
-    def before_create
-      super
-      provision_on_gateway
-    end
-
-    def after_create
-      super
-      ServiceCreateEvent.create_from_service_instance(self)
-    end
-
-    def after_destroy
-      super
-      deprovision_on_gateway
-      ServiceDeleteEvent.create_from_service_instance(self)
-    end
-
-    def after_commit
-      @provisioned_on_gateway_for_plan = nil
-      super
-    end
-
-    def after_rollback
-      deprovision_on_gateway if @provisioned_on_gateway_for_plan
-      super
-    end
+    default_order_by  :id
 
     def validate_service_binding(service_binding)
       if service_binding && service_binding.app.space != space
@@ -124,7 +62,7 @@ module VCAP::CloudController::Models
       {
         :guid => guid,
         :name => name,
-        :bound_app_count => service_bindings_dataset.count,
+        :bound_app_count => service_bindings.count,
         :service_plan => {
           :guid => service_plan.guid,
           :name => service_plan.name,
@@ -138,7 +76,7 @@ module VCAP::CloudController::Models
       }
     end
 
-    def check_quota
+    def must_fit_in_organization_quota
       if space
         unless service_plan
           errors.add(:space, :quota_exceeded)
@@ -176,9 +114,8 @@ module VCAP::CloudController::Models
       val
     end
 
-    def self.user_visibility_filter(user)
-      user_visibility_filter_with_admin_override(
-        :space => user.spaces_dataset)
+    def self.user_visibility_filter(user, set = self)
+      set.where(:space_id => user.spaces)
     end
 
     def requester
@@ -242,6 +179,22 @@ module VCAP::CloudController::Models
       logger.error "deprovision failed #{e}"
     end
 
+    def register_service_create_event
+      ServiceCreateEvent.create_from_service_instance(self)
+    end
+
+    def register_service_delete_event
+      ServiceDeleteEvent.create_from_service_instance(self)
+    end
+
+    def invalidate_provisioned_state
+      @provisioned_on_gateway_for_plan = nil
+    end
+
+    def reset_provisioning
+      deprovision_on_gateway if @provisioned_on_gateway_for_plan
+    end
+
     def create_snapshot(name)
       NGServiceGatewayClient.new(service, gateway_name).create_snapshot(name)
     end
@@ -285,5 +238,50 @@ module VCAP::CloudController::Models
     def generate_salt
       self.salt ||= VCAP::CloudController::Encryptor.generate_salt
     end
+
+    # TODO AR: put this somewhere sane
+    class NGServiceGatewayClient
+      attr_accessor :service, :token, :service_id
+
+      def initialize(service, service_id)
+        @service = service
+        @token   = service.service_auth_token
+        @service_id = service_id
+        unless token
+          raise MissingServiceAuthToken, "ServiceAuthToken not found for service #{service}"
+        end
+      end
+
+      def create_snapshot(name)
+        payload = VCAP::Services::Api::CreateSnapshotV2Request.new(:name => name).encode
+        response = do_request(:post, payload)
+        VCAP::Services::Api::SnapshotV2.decode(response)
+      end
+
+      def enum_snapshots
+        list = VCAP::Services::Api::SnapshotListV2.decode(do_request(:get))
+        list.snapshots.collect{|e| VCAP::Services::Api::SnapshotV2.new(e) }
+      end
+
+      private
+
+      def do_request(method, payload=nil)
+        client = HTTPClient.new
+        u = URI.parse(service.url)
+        u.path = "/gateway/v2/configurations/#{service_id}/snapshots"
+
+        response = client.public_send(method, u,
+                                      :header => { VCAP::Services::Api::GATEWAY_TOKEN_HEADER => token.token,
+                                                   "Content-Type" => "application/json"
+                                                },
+                                      :body   => payload)
+        if response.ok?
+          response.body
+        else
+          raise ServiceGatewayError, "Service gateway upstream failure, responded with #{response.status}: #{response.body}"
+        end
+      end
+    end
+
   end
 end

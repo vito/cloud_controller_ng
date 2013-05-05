@@ -27,11 +27,11 @@ module VCAP::CloudController
                      :audited_space_guid
 
     def self.translate_validation_exception(e, attributes)
-      guid_errors = e.errors.on(:guid)
-      if guid_errors && guid_errors.include?(:unique)
+      guid_errors = e.record.errors[:guid]
+      if guid_errors && guid_errors.include?(:taken)
         Errors::UaaIdTaken.new(attributes["guid"])
       else
-        Errors::UserInvalid.new(e.errors.full_messages)
+        Errors::UserInvalid.new(e.record.errors.full_messages)
       end
     end
   end

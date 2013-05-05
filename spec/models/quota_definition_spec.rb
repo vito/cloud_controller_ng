@@ -26,11 +26,11 @@ module VCAP::CloudController
 
     describe "#destroy" do
       it "nullifies the organization quota definition" do
-        org = Models::Organization.make(:quota_definition => quota_definition)
-        expect {
-          quota_definition.destroy
-        }.to change {
-          Models::Organization.count(:id => org.id)
+        org = Models::Organization.make(
+          :quota_definition => quota_definition)
+
+        expect { quota_definition.destroy }.to change {
+          Models::Organization.where(:id => org.id).count
         }.by(-1)
       end
     end

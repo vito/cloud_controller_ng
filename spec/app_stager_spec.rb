@@ -184,7 +184,7 @@ module VCAP::CloudController
               expect {
                 ignore_error(Errors::StagingError) { with_em_and_thread { stage } }
               }.to_not change {
-                app.refresh
+                app.reload
                 app.droplet_hash
               }.from("droplet-hash")
             end

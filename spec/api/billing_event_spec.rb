@@ -18,7 +18,7 @@ module VCAP::CloudController
         end
 
         before(:all) do
-          Models::BillingEvent.delete
+          Models::BillingEvent.delete_all
 
           timestamp = Time.new(2012, 01, 01, 00, 00, 01)
           @start_time = timestamp
@@ -141,6 +141,7 @@ module VCAP::CloudController
 
             it "should correctly serialize the service create event" do
               get path, {}, admin_headers
+
               decoded_response["resources"][3].should == {
                 "event_type" => "service_create",
                 "organization_guid" => @service_create_event.organization_guid,

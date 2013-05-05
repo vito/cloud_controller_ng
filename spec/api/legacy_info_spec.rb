@@ -351,8 +351,8 @@ module VCAP::CloudController
     describe "GET", "/info/services", "unauthenticated" do
       before(:each) do
         # poor man's reset_db
-        Models::Service.filter(:provider => "core").each do |svc|
-          svc.service_plans_dataset.filter(:name => "100").destroy
+        Models::Service.where(:provider => "core").each do |svc|
+          svc.service_plans.where(:name => "100").destroy_all
           svc.destroy
         end
         @mysql_svc  = Models::Service.make(

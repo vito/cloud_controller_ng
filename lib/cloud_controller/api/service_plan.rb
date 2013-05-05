@@ -21,11 +21,11 @@ module VCAP::CloudController
     query_parameters :service_guid, :service_instance_guid
 
     def self.translate_validation_exception(e, attributes)
-      name_errors = e.errors.on([:service_id, :name])
-      if name_errors && name_errors.include?(:unique)
+      name_errors = e.record.errors[:name]
+      if name_errors && name_errors.include?(:taken)
         Errors::ServicePlanNameTaken.new("#{attributes["service_id"]}-#{attributes["name"]}")
       else
-        Errors::ServicePlanInvalid.new(e.errors.full_messages)
+        Errors::ServicePlanInvalid.new(e.record.errors.full_messages)
       end
     end
   end

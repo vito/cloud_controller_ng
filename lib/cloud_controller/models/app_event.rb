@@ -1,16 +1,17 @@
 module VCAP::CloudController::Models
-  class AppEvent < Sequel::Model
-    many_to_one :app
+  class AppEvent < ActiveRecord::Base
+    include CF::ModelGuid
+    include CF::ModelRelationships
 
-    export_attributes :app_guid, :instance_guid, :instance_index, :exit_status, :exit_description, :timestamp
-    import_attributes :app_guid, :instance_guid, :instance_index, :exit_status, :exit_description, :timestamp
+    belongs_to :app
 
-    def validate
-      validates_presence :app
-      validates_presence :instance_guid
-      validates_presence :instance_index
-      validates_presence :exit_status
-      validates_presence :timestamp
-    end
+    validates :app, :instance_guid, :instance_index, :exit_status, :timestamp,
+              :presence => true
+
+    export_attributes :app_guid, :instance_guid, :instance_index,
+      :exit_status, :exit_description, :timestamp
+
+    import_attributes :app_guid, :instance_guid, :instance_index,
+      :exit_status, :exit_description, :timestamp
   end
 end

@@ -18,11 +18,11 @@ module VCAP::CloudController
     query_parameters :name
 
     def self.translate_validation_exception(e, attributes)
-      name_errors = e.errors.on(:name)
-      if name_errors && name_errors.include?(:unique)
+      name_errors = e.record.errors[:name]
+      if name_errors && name_errors.include?(:taken)
         Errors::QuotaDefinitionNameTaken.new(attributes["name"])
       else
-        Errors::QuotaDefinitionInvalid.new(e.errors.full_messages)
+        Errors::QuotaDefinitionInvalid.new(e.record.errors.full_messages)
       end
     end
   end

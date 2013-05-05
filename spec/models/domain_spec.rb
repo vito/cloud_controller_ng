@@ -7,7 +7,7 @@ module VCAP::CloudController
     let(:domain) { Models::Domain.make }
 
     it_behaves_like "a CloudController model", {
-      :required_attributes          => [:name, :owning_organization, :wildcard],
+      :required_attributes          => [:name, :owning_organization],
       :db_required_attributes       => [:name],
       :unique_attributes            => :name,
       :stripped_string_attributes   => :name,
@@ -36,7 +36,7 @@ module VCAP::CloudController
         :routes => {
           :delete_ok => true,
           :create_for => lambda { |domain|
-            domain.update(:wildcard => true)
+            domain.update_attributes(:wildcard => true)
             space = Models::Space.make(:organization => domain.owning_organization)
             space.add_domain(domain)
             Models::Route.make(:domain => domain, :space => space)
@@ -126,8 +126,10 @@ module VCAP::CloudController
 
         it "should not allow the creation of a shared domain" do
           expect {
-            Models::Domain.create(:name => "shared.com")
-          }.to raise_error Sequel::ValidationFailed, /organization presence/
+            Models::Domain.make(
+              :name => "shared.com",
+              :owning_organization => nil)
+          }.to raise_error ActiveRecord::RecordInvalid
         end
       end
     end
@@ -150,15 +152,16 @@ module VCAP::CloudController
           it "should not be allowed" do
             domain_a.should be_valid
             expect {
-              Models::Domain.make(:name => name_b)
-            }.to raise_error(Sequel::ValidationFailed, /overlapping_domain/)
+              Models::Domain.make(
+                :name => name_b,
+                :owning_organization => nil)
+            }.to raise_error(ActiveRecord::RecordInvalid)
           end
         end
       end
 
       shared_examples "overlapping with system domain" do
         context "with system domain and non system domain" do
-
           it "should not be allowed" do
             system_domain = Models::Domain.new(
               :name => name_a,
@@ -167,8 +170,8 @@ module VCAP::CloudController
             ).save(:validate => false)
 
             expect {
-              Models::Domain.make(:name => name_b)
-            }.to raise_error(Sequel::ValidationFailed, /overlapping_domain/)
+              Models::Domain.make(:name => name_a)
+            }.to raise_error(ActiveRecord::RecordInvalid)
           end
         end
       end
@@ -182,7 +185,7 @@ module VCAP::CloudController
             domain_a = Models::Domain.make(:name => name_a)
             expect {
               Models::Domain.make(:name => domain_a.name)
-            }.to raise_error(Sequel::ValidationFailed, /overlapping_domain/)
+            }.to raise_error(ActiveRecord::RecordInvalid)
           end
         end
 
@@ -319,14 +322,15 @@ module VCAP::CloudController
             d.should_not be_valid
         end
 
-        it "should not remove the wildcard flag if routes are using it" do
+        it "does not allow removing the wildcard flag if routes are using it" do
           d = Models::Domain.make(:wildcard => true)
           s = Models::Space.make(:organization => d.owning_organization)
           s.add_domain(d)
           r = Models::Route.make(:host => Sham.host, :domain => d, :space => s)
           expect {
-            d.update(:wildcard => false)
-          }.to raise_error(Sequel::ValidationFailed)
+            d.wildcard = false
+            d.save!
+          }.to raise_error(ActiveRecord::RecordInvalid)
         end
 
         it "should remove the wildcard flag if no routes are using it" do
@@ -334,7 +338,7 @@ module VCAP::CloudController
           s = Models::Space.make(:organization => d.owning_organization)
           s.add_domain(d)
           r = Models::Route.make(:host => "", :domain => d, :space => s)
-          d.update(:wildcard => false)
+          d.update_attributes(:wildcard => false)
         end
       end
     end

@@ -233,7 +233,7 @@ module VCAP::CloudController
     def download_app(guid)
       raise InvalidRequest unless AppPackage.local?
 
-      app = Models::App.find(:guid => guid)
+      app = Models::App.find_by_guid(guid)
       raise AppNotFound.new(guid) if app.nil?
 
       package_path = AppPackage.package_local_path(guid)
@@ -281,7 +281,7 @@ module VCAP::CloudController
     def download(guid, droplet_path, url)
       raise InvalidRequest unless Staging.local?
 
-      app = Models::App.find(:guid => guid)
+      app = Models::App.find_by_guid(guid)
       raise AppNotFound.new(guid) if app.nil?
 
       logger.debug "guid: #{guid} droplet_path #{droplet_path}"
@@ -302,7 +302,7 @@ module VCAP::CloudController
 
     def upload(guid, type)
       tag = (type == :buildpack_cache) ? "buildpack_cache" : "staged_droplet"
-      app = Models::App.find(:guid => guid)
+      app = Models::App.find_by_guid(guid)
       raise AppNotFound.new(guid) if app.nil?
 
       handle = self.class.lookup_handle(guid)

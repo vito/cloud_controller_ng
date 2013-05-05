@@ -4,7 +4,11 @@ module VCAP::CloudController
   describe Runner do
     describe "#run!" do
       before { MessageBus.stub(:new => MockMessageBus.new({})) }
-      let(:valid_config_file_path) { File.expand_path("../fixtures/config/minimal_config.yml", __FILE__) }
+
+      let(:valid_config_file_path) do
+        File.expand_path("../fixtures/config/minimal_config.yml", __FILE__)
+      end
+
       let(:config_file_path) { valid_config_file_path }
 
       subject do
@@ -40,7 +44,7 @@ module VCAP::CloudController
 
         before do
           reset_database
-          Models::QuotaDefinition.dataset.destroy
+          Models::QuotaDefinition.destroy_all
           Models::Stack.stub(:configure)
         end
 
@@ -52,14 +56,14 @@ module VCAP::CloudController
           before { subject.run! }
 
           it "creates stacks from the config file" do
-            cider = Models::Stack.find(:name => "cider")
+            cider = Models::Stack.where(:name => "cider").first
             cider.description.should == "cider-description"
             cider.should be_valid
           end
 
           it "should load quota definitions" do
             Models::QuotaDefinition.count.should == 2
-            paid = Models::QuotaDefinition[:name => "paid"]
+            paid = Models::QuotaDefinition.find_by_name("paid")
             paid.non_basic_services_allowed.should == true
             paid.total_services.should == 500
             paid.memory_limit.should == 204800
@@ -71,15 +75,15 @@ module VCAP::CloudController
           end
 
           it "creates the system domain, owned by the system domain org" do
-            domain = Models::Domain.find(:name => "the-system-domain.com")
+            domain = Models::Domain.find_by_name("the-system-domain.com")
             expect(domain.owning_organization.name).to eq("the-system-domain-org-name")
             expect(domain.wildcard).to be_true
           end
 
           it "creates the application serving domains" do
             ["customer-app-domain1.com", "customer-app-domain2.com"].each do |domain|
-              expect(Models::Domain.find(:name => domain)).not_to be_nil
-              expect(Models::Domain.find(:name => domain).owning_organization).to be_nil
+              expect(Models::Domain.find_by_name(domain)).not_to be_nil
+              expect(Models::Domain.find_by_name(domain).owning_organization).to be_nil
             end
           end
         end
@@ -120,7 +124,7 @@ module VCAP::CloudController
 
           it "creates the system domain as a shared domain" do
             subject.run!
-            domain = Models::Domain.find(:name => "the-system-domain.com")
+            domain = Models::Domain.find_by_name("the-system-domain.com")
             expect(domain.owning_organization).to be_nil
             expect(domain.wildcard).to be_true
           end

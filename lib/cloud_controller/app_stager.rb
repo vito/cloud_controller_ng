@@ -210,7 +210,7 @@ module VCAP::CloudController
     def staging_is_current?
       # Reload to find other updates of staging task id
       # which means that there was a new staging process initiated
-      @app.refresh
+      @app.reload
 
       @app.staging_task_id == task_id
     end

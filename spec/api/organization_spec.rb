@@ -185,7 +185,7 @@ module VCAP::CloudController
           put "/v2/organizations/#{org.guid}", req, admin_headers
           last_response.status.should == 201
           decoded_response["entity"]["billing_enabled"].should == true
-          org.refresh
+          org.reload
           org.billing_enabled.should == true
         end
       end
@@ -196,7 +196,7 @@ module VCAP::CloudController
           req = Yajl::Encoder.encode(:billing_enabled => true)
           put "/v2/organizations/#{org.guid}", req, org_admin_headers
           last_response.status.should == 400
-          org.refresh
+          org.reload
           org.billing_enabled.should == false
         end
 
@@ -206,7 +206,7 @@ module VCAP::CloudController
           req = Yajl::Encoder.encode(:billing_enabled => false)
           put "/v2/organizations/#{org.guid}", req, org_admin_headers
           last_response.status.should == 400
-          org.refresh
+          org.reload
           org.billing_enabled.should == true
         end
       end
@@ -253,7 +253,7 @@ module VCAP::CloudController
         it "should be allowed to set the quota definition" do
           put "/v2/organizations/#{org.guid}", update_request, admin_headers
           last_response.status.should == 201
-          org.refresh
+          org.reload
           org.quota_definition.should == quota_definition
         end
       end
@@ -263,7 +263,7 @@ module VCAP::CloudController
           orig_quota_definition = org.quota_definition
           put "/v2/organizations/#{org.guid}", update_request, org_admin_headers
           last_response.status.should == 400
-          org.refresh
+          org.reload
           org.quota_definition.should == orig_quota_definition
         end
       end

@@ -25,11 +25,11 @@ module VCAP::CloudController
     query_parameters :active
 
     def self.translate_validation_exception(e, attributes)
-      label_provider_errors = e.errors.on([:label, :provider])
-      if label_provider_errors && label_provider_errors.include?(:unique)
+      provider_errors = e.record.errors[:provider]
+      if provider_errors && provider_errors.include?(:taken)
         Errors::ServiceLabelTaken.new("#{attributes["label"]}-#{attributes["provider"]}")
       else
-        Errors::ServiceInvalid.new(e.errors.full_messages)
+        Errors::ServiceInvalid.new(e.record.errors.full_messages)
       end
     end
   end

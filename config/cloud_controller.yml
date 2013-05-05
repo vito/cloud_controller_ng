@@ -33,7 +33,9 @@ logging:
   level: debug2
 
 db:
-  database: "sqlite:///tmp/cloud_controller.db"
+  database:
+    adapter: sqlite3
+    database: /tmp/cloud_controller.db
   max_connections: 32
   pool_timeout: 10
 

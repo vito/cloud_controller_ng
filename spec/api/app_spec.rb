@@ -183,7 +183,7 @@ module VCAP::CloudController
             update_hash = { :environment_json => hash }
             put "/v2/apps/#{app_obj.guid}", Yajl::Encoder.encode(update_hash), json_headers(admin_headers)
             last_response.status.should == 400
-            decoded_response["description"].should match /environment_json reserved_key:#{k}_abc/
+            decoded_response["description"].should match /reserved_key:#{k}_abc/
           end
         end
       end
@@ -226,6 +226,7 @@ module VCAP::CloudController
                 end
 
                 put "/v2/apps/#{app_obj.guid}?#{query_params}", Yajl::Encoder.encode(:state => "STARTED"), json_headers(admin_headers)
+                last_response.status.should == 201
                 received_app.id.should == app_obj.id
                 received_options.should == {:async => true}
               end
@@ -279,9 +280,10 @@ module VCAP::CloudController
       let(:space) { Models::Space.make }
       let(:domain) do
         space.add_domain(
-          :name => "jesse.cloud",
-          :wildcard => true,
-          :owning_organization => space.organization,
+          Models::Domain.make(
+            :name => "jesse.cloud",
+            :wildcard => true,
+            :owning_organization => space.organization)
         )
       end
 
@@ -303,8 +305,9 @@ module VCAP::CloudController
 
       it "sends a dea.update message when we add one url through PUT /v2/apps/:guid" do
         route = domain.add_route(
-          :host => "app",
-          :space => space,
+          Models::Route.make(
+            :host => "app",
+            :space => space)
         )
 
         MessageBus.instance.should_receive(:publish).with(
@@ -321,6 +324,7 @@ module VCAP::CloudController
           ).encode,
           @headers_for_user,
         )
+
         last_response.status.should == 201
       end
 
@@ -328,19 +332,24 @@ module VCAP::CloudController
 
       it "sends a dea.update message dea.update when we remove a url through PUT /v2/apps/:guid" do
         bar_route = @app.add_route(
-          :host => "bar",
-          :space => space,
-          :domain => domain,
+          Models::Route.make(
+            :host => "bar",
+            :space => space,
+            :domain => domain)
         )
         route = @app.add_route(
-          :host => "foo",
-          :space => space,
-          :domain => domain,
+          Models::Route.make(
+            :host => "foo",
+            :space => space,
+            :domain => domain)
         )
+
         get "#{@app_url}/routes", {}, @headers_for_user
+        last_response.status.should == 200
+
         decoded_response["resources"].map { |r|
           r["metadata"]["guid"]
-        }.sort.should == [bar_route.guid, route.guid].sort
+        }.should =~ [bar_route.guid, route.guid]
 
         MessageBus.instance.should_receive(:publish).with(
           "dea.update",

@@ -4,7 +4,7 @@ $:.unshift File.expand_path("../lib", __FILE__)
 require "rspec/core/rake_task"
 require "ci/reporter/rake/rspec"
 require "yaml"
-require "sequel"
+require "active_support/inflector"
 require "steno"
 require "vcap/config"
 require "cloud_controller/config"
@@ -58,7 +58,7 @@ task :coverage do
 end
 
 namespace :db do
-  desc "Create a Sequel migration in ./db/migrate"
+  desc "Create a ActiveRecord migration in ./db/migrate"
   task :create_migration do
     name = ENV["NAME"]
     abort("no NAME specified. use `rake db:create_migration NAME=add_users`") if !name
@@ -70,15 +70,15 @@ namespace :db do
 
     open(File.join(migrations_dir, filename), "w") do |f|
       f.write <<-Ruby
-Sequel.migration do
-  change do
+class #{name.classify} < ActiveRecord::Migration
+  def change
   end
 end
       Ruby
     end
   end
 
-  desc "Perform Sequel migration to database"
+  desc "Perform ActiveRecord migration to database"
   task :migrate do
     config_file = ENV["CLOUD_CONTROLLER_NG_CONFIG"]
     config_file ||= File.expand_path("../config/cloud_controller.yml", __FILE__)
@@ -89,7 +89,10 @@ end
     Steno.init(Steno::Config.new(:sinks => [Steno::Sink::IO.new(STDOUT)]))
     db_logger = Steno.logger("cc.db.migrations")
 
-    db = VCAP::CloudController::DB.connect(db_logger, config[:db])
+    opts = config[:db]
+    opts[:database] = ENV["DB_CONNECTION"] if ENV.key?("DB_CONNECTION")
+
+    db = VCAP::CloudController::DB.connect(db_logger, opts)
     VCAP::CloudController::DB.apply_migrations(db)
   end
 end

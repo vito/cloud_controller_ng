@@ -42,10 +42,19 @@ GIT
 GEM
   remote: https://rubygems.org/
   specs:
-    activesupport (3.2.8)
-      i18n (~> 0.6)
+    activemodel (3.2.13)
+      activesupport (= 3.2.13)
+      builder (~> 3.0.0)
+    activerecord (3.2.13)
+      activemodel (= 3.2.13)
+      activesupport (= 3.2.13)
+      arel (~> 3.0.2)
+      tzinfo (~> 0.3.29)
+    activesupport (3.2.13)
+      i18n (= 0.6.1)
       multi_json (~> 1.0)
     addressable (2.3.4)
+    arel (3.0.2)
     backports (2.6.1)
     bcrypt-ruby (3.0.1)
     builder (3.0.0)
@@ -106,7 +115,7 @@ GEM
     machinist (1.0.6)
     membrane (0.0.2)
     mime-types (1.23)
-    multi_json (1.3.6)
+    multi_json (1.7.3)
     multi_xml (0.5.1)
     multipart-post (1.2.0)
     mysql2 (0.3.11)
@@ -142,7 +151,6 @@ GEM
     rspec-mocks (2.12.2)
     ruby-graphviz (1.0.5)
     ruby-hmac (0.4.0)
-    sequel (3.45.0)
     simplecov (0.6.4)
       multi_json (~> 1.0)
       simplecov-html (~> 0.5.3)
@@ -171,17 +179,22 @@ GEM
     thor (0.15.4)
     tilt (1.3.3)
     timecop (0.5.9.1)
+    tzinfo (0.3.37)
     virtus (0.5.2)
       backports (~> 2.6.1)
     webmock (1.8.11)
       addressable (>= 2.2.7)
       crack (>= 0.1.7)
+    will_paginate (3.0.4)
     yajl-ruby (1.1.0)
 
 PLATFORMS
   ruby
 
 DEPENDENCIES
+  activerecord (~> 3.2.13)
+  activesupport (~> 3.2.13)
+  addressable
   bcrypt-ruby
   cf-uaa-lib (~> 1.3.7)!
   ci_reporter
@@ -198,7 +211,6 @@ DEPENDENCIES
   rfc822
   rspec
   ruby-graphviz
-  sequel
   simplecov
   simplecov-rcov
   sinatra
@@ -210,4 +222,5 @@ DEPENDENCIES
   vcap-concurrency!
   vcap_common (~> 2.0.8)!
   webmock
+  will_paginate
   yajl-ruby

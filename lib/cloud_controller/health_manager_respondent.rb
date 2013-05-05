@@ -58,7 +58,8 @@ module VCAP::CloudController
         return
       end
 
-      app = Models::App[:guid => app_id]
+      app = Models::App.find_by_guid(app_id)
+
       return unless app
       return unless app.started?
       return unless version == app.version
@@ -82,7 +83,7 @@ module VCAP::CloudController
         return
       end
 
-      app = Models::App[:guid => app_id]
+      app = Models::App.find_by_guid(app_id)
 
       return if stop_runway_app(app, app_id)
       return if last_updated != app.updated_at.to_i
@@ -100,7 +101,7 @@ module VCAP::CloudController
         return
       end
 
-      app = Models::App[:guid => app_id]
+      app = Models::App.find_by_guid(app_id)
 
       return if stop_runway_app(app, app_id)
 

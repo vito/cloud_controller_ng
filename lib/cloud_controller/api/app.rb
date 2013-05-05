@@ -39,17 +39,15 @@ module VCAP::CloudController
     query_parameters :name, :space_guid, :organization_guid
 
     def self.translate_validation_exception(e, attributes)
-      space_and_name_errors = e.errors.on([:space_id, :name])
-      memory_quota_errors = e.errors.on(:memory)
+      name_errors = e.record.errors[:name]
+      memory_quota_errors = e.record.errors[:memory]
 
-      if space_and_name_errors && space_and_name_errors.include?(:unique)
+      if name_errors && name_errors.include?(:taken)
         Errors::AppNameTaken.new(attributes["name"])
-      elsif memory_quota_errors
-        if memory_quota_errors.include?(:quota_exceeded)
-          Errors::AppMemoryQuotaExceeded.new
-        end
+      elsif memory_quota_errors && memory_quota_errors.include?(:quota_exceeded)
+        Errors::AppMemoryQuotaExceeded.new
       else
-        Errors::AppInvalid.new(e.errors.full_messages)
+        Errors::AppInvalid.new(e.record.errors.full_messages)
       end
     end
 

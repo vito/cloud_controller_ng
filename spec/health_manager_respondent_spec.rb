@@ -34,7 +34,7 @@ module VCAP::CloudController
     let(:app) do
       Models::App.make(
         :instances => 2, :state => 'STARTED', :package_hash => "SOME_HASH", :package_state => "STAGED"
-      ).save
+      )
     end
     let(:payload) do
       {
@@ -55,7 +55,7 @@ module VCAP::CloudController
         it_should_behave_like "common test for all health manager respondents"
 
         it "sends a start request to dea" do
-          app.update(
+          app.update_attributes(
             :state => "STARTED",
             :package_hash => "abc",
             :package_state => "STAGED",
@@ -74,7 +74,7 @@ module VCAP::CloudController
         end
 
         context "when the app isn't started" do
-          let(:app) { Models::App.make(:instances => 2).save }
+          let(:app) { Models::App.make(:instances => 2) }
 
           it "drops the request" do
             dea_client.should_not_receive(:start_instances_with_message)
@@ -103,7 +103,7 @@ module VCAP::CloudController
 
         context "when the app is flapping" do
           it "should send a start request indicating a flapping app" do
-            app.update(
+            app.update_attributes(
               :state => "STARTED",
               :package_hash => "abc",
               :package_state => "STAGED",
@@ -225,7 +225,7 @@ module VCAP::CloudController
         it_should_behave_like "common test for all health manager respondents"
 
         it "should drop the request if app already stopped" do
-          app.update(
+          app.update_attributes(
             :state => "STOPPED",
           )
 
@@ -239,7 +239,7 @@ module VCAP::CloudController
         end
 
         it "should stop an app" do
-          app.update(
+          app.update_attributes(
             :state => "STARTED",
             :package_hash => "abc",
             :package_state => "STAGED",

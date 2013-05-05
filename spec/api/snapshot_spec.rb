@@ -6,9 +6,10 @@ module VCAP::CloudController
       service = Models::Service.make(
         :url => "http://horsemeat.com",
       )
-      Models::ServiceInstance.make(
-        :service_plan => Models::ServicePlan.make(:service => service),
-      )
+
+      plan = Models::ServicePlan.make(:service => service)
+
+      Models::ServiceInstance.make(:service_plan => plan)
     end
 
     describe "POST", "/v2/snapshots" do
@@ -87,8 +88,8 @@ module VCAP::CloudController
         end
 
         it "invokes create_snapshot on the corresponding service instance" do
-          Models::ServiceInstance.should_receive(:find).
-            with(:guid => service_instance.guid).
+          Models::ServiceInstance.should_receive(:find_by_guid).
+            with(service_instance.guid).
             and_return(service_instance)
           service_instance.should_receive(:create_snapshot).
             with(new_name).
@@ -124,10 +125,11 @@ module VCAP::CloudController
       end
 
       context "once authenticated" do
-        let(:developer) {make_developer_for_space(service_instance.space)}
+        let(:developer) { make_developer_for_space(service_instance.space) }
+
         before do
-          Models::ServiceInstance.stub(:find).
-            with(:guid => service_instance.guid).
+          Models::ServiceInstance.stub(:find_by_guid).
+            with(service_instance.guid).
             and_return(service_instance)
         end
 

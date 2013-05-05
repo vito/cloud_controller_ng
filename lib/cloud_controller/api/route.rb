@@ -21,11 +21,11 @@ module VCAP::CloudController
     query_parameters :host, :domain_guid
 
     def self.translate_validation_exception(e, attributes)
-      name_errors = e.errors.on([:host, :domain_id])
-      if name_errors && name_errors.include?(:unique)
+      domain_errors = e.record.errors[:domain_id]
+      if domain_errors && domain_errors.include?(:taken)
         Errors::RouteHostTaken.new(attributes["host"])
       else
-        Errors::RouteInvalid.new(e.errors.full_messages)
+        Errors::RouteInvalid.new(e.record.errors.full_messages)
       end
     end
   end

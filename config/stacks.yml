@@ -2,4 +2,6 @@
 # in the create_stacks_table migration
 default: "lucid64"
 
-stacks: []
+stacks:
+- name: lucid64
+  description: Ubuntu 10.04 on x86-64

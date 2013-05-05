@@ -51,7 +51,7 @@ module VCAP::CloudController
           @app.instances = 1
           @app.save
 
-          @app.refresh
+          @app.reload
 
           instances = {
             0 => {

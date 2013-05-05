@@ -149,7 +149,7 @@ module VCAP::CloudController
       it "is visible to users from privileged organizations" do
         organization = developer.organizations.first
         VCAP::CloudController::SecurityContext.stub(:current_user_is_admin?) { true }
-        organization.update(:can_access_non_public_plans => true)
+        organization.update_attributes(:can_access_non_public_plans => true)
         get '/v2/service_plans', {}, headers_for(developer)
         plan_guids.should include(private_plan.guid)
       end
@@ -163,6 +163,7 @@ module VCAP::CloudController
 
   describe "POST", "/v2/service_plans" do
     let(:service) { Models::Service.make }
+
     it "accepts a request with unique_id" do
       payload = ServicePlan::CreateMessage.new(
         :name => 'foo',

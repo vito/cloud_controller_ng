@@ -4,12 +4,8 @@ module VCAP::CloudController::Models
   class OrganizationStartEvent < BillingEvent
     class BillingNotEnabled < RuntimeError; end
 
-    export_attributes(
-      :timestamp,
-      :event_type,
-      :organization_guid,
-      :organization_name,
-    )
+    export_attributes :timestamp, :event_type, :organization_guid,
+                      :organization_name
 
     def event_type
       "organization_billing_start"

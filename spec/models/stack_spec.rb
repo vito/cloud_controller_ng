@@ -69,13 +69,13 @@ module VCAP::CloudController::Models
 
         it "loads stacks" do
           described_class.populate
-          cider = described_class.find(:name => "cider")
+          cider = described_class.find_by_name("cider")
           cider.should be_valid
         end
 
         it "populates descriptions about loaded stacks" do
           described_class.populate
-          cider = described_class.find(:name => "cider")
+          cider = described_class.find_by_name("cider")
           cider.description.should == "cider-description"
         end
       end
