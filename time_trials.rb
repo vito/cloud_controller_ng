@@ -7,7 +7,7 @@ require 'yaml'
 def print_info(time, description)
   puts description
   time.each do |name, info|
-    printf "%s: %0.3f total, %0.3f min, %0.3f max, %0.3f average\n",
+    printf "%s: %02.3f total, %02.3f min, %02.3f max, %02.3f average\n",
            name.inspect, info[:total], info[:min], info[:max], info[:avg]
   end
   puts
@@ -44,7 +44,7 @@ sequel_times = Hash.new { |h, k| h[k] = { :times => [] } }
     mark = Benchmark.realtime do
       request active_record, :depth => depth
     end
-    puts "pasadena run #{depth} depth, time: #{mark}"
+    puts "active record run: depth => #{depth}, time: #{mark}"
     active_record_times[depth][:times] << mark
   end
 
@@ -55,7 +55,7 @@ sequel_times = Hash.new { |h, k| h[k] = { :times => [] } }
     mark = Benchmark.realtime do
       request sequel, :depth => depth
     end
-    puts "sequel run #{depth} depth, time: #{mark}"
+    puts "sequel run:        depth => #{depth}, time: #{mark}"
     sequel_times[depth][:times] << mark
   end
 
