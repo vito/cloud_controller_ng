@@ -2,7 +2,8 @@ require File.expand_path("../spec_helper", __FILE__)
 
 module VCAP::CloudController
   describe VCAP::CloudController::Models::ServiceInstance do
-    let(:service_instance) { VCAP::CloudController::Models::ServiceInstance.make }
+    let(:service_instance) { described_class.make }
+
     let(:email) { Sham.email }
     let(:guid) { Sham.guid }
 
@@ -38,11 +39,12 @@ module VCAP::CloudController
     it_behaves_like "a model with an encrypted attribute" do
       def new_model
         Models::ServiceInstance.new.tap do |instance|
-          instance.set(
+          instance.attributes = {
             :name => Sham.name,
             :space => Models::Space.make,
             :service_plan => Models::ServicePlan.make
-          )
+          }
+
           instance.stub(:service_gateway_client).and_return(
             double("Service Gateway Client",
               :provision => VCAP::Services::Api::GatewayHandleResponse.new(
@@ -52,6 +54,7 @@ module VCAP::CloudController
               )
             )
           )
+
           instance.save
         end
       end
@@ -59,6 +62,14 @@ module VCAP::CloudController
       let(:encrypted_attr) { :credentials }
     end
 
+    describe "serialization" do
+      let(:dashboard_url) { 'http://dashboard.io' }
+
+      it "allows export of dashboard_url"  do
+        service_instance.dashboard_url = dashboard_url
+        Yajl::Parser.parse(service_instance.to_json).fetch("dashboard_url").should == dashboard_url
+      end
+    end
 
     describe "#add_service_binding" do
       it "should not bind an app and a service instance from different app spaces" do
@@ -85,7 +96,7 @@ module VCAP::CloudController
         it "should not deprovision a service on rollback after update" do
           expect {
             Models::ServiceInstance.db.transaction do
-              service_instance.update(:name => "newname")
+              service_instance.update_attributes(:name => "newname")
               raise "something bad"
             end
           }.to raise_error
@@ -186,14 +197,16 @@ module VCAP::CloudController
       context "when a service_gateway_client exists" do
         it 'provisions the service_gateway_client' do
           provision_hash = nil
-          VCAP::Services::Api::ServiceGatewayClientFake.any_instance.should_receive(:provision).with(any_args) do |h|
+          VCAP::Services::Api::ServiceGatewayClientFake.any_instance.should_receive(:provision) do |h|
             provision_hash = h
             VCAP::Services::Api::GatewayHandleResponse.new(
               :service_id => '',
               :configuration => '',
               :credentials => '',
+              :dashboard_url => 'http://dashboard.io'
             )
           end
+
           service_instance
 
           expect(provision_hash).to eq(
@@ -210,11 +223,20 @@ module VCAP::CloudController
           )
         end
 
-        it 'sets up the gateway' do
+        it 'fills in the service details' do
+          VCAP::Services::Api::ServiceGatewayClientFake.any_instance.stub(:provision) do |_|
+            VCAP::Services::Api::GatewayHandleResponse.new(
+              :service_id => 'service_id',
+              :configuration => 'configuration',
+              :credentials => 'credentials',
+              :dashboard_url => 'http://dashboard.io'
+            )
+          end
           service_instance
-          expect(service_instance.gateway_name).to be_a String
-          expect(service_instance.gateway_data).to be_a String
-          expect(service_instance.credentials).to be_a Hash
+          service_instance.gateway_name.should == 'service_id'
+          service_instance.gateway_data.should == 'configuration'
+          service_instance.credentials.should == 'credentials'
+          service_instance.dashboard_url.should == 'http://dashboard.io'
         end
       end
     end
@@ -232,49 +254,50 @@ module VCAP::CloudController
                                      :non_basic_services_allowed => true)
       end
 
-      context "with a free rds allowed" do
+      context "with a trial quota" do
         before do
           reset_database
         end
 
-        let(:trial_rds_plan) { Models::ServicePlan.make(:unique_id => "aws_rds_mysql_10mb") }
-        let(:paid_rds_plan) { Models::ServicePlan.make(:unique_id => "aws_rds_mysql_cfinternal") }
+        let(:trial_db_guid) { Models::ServicePlan.trial_db_guid }
+        let(:trial_db_plan) { Models::ServicePlan.make(:unique_id => trial_db_guid) }
+        let(:paid_db_plan) { Models::ServicePlan.make(:unique_id => "aws_rds_mysql_cfinternal") }
 
         let(:trial_quota) do
           Models::QuotaDefinition.make(:total_services => 0,
             :non_basic_services_allowed => false,
-            :free_rds => true)
+            :trial_db_allowed => true)
         end
 
         let(:org) { Models::Organization.make(:quota_definition => trial_quota)}
         let(:space) { Models::Space.make(:organization => org) }
 
-        context "when the service instance is a trial rds instance" do
-          def allocate_trial_rds
+        context "when the service instance is a trial db instance" do
+          def allocate_trial_db
             Models::ServiceInstance.make(:space => space,
-              :service_plan => trial_rds_plan)
+              :service_plan => trial_db_plan)
           end
 
-          it "raises an error if an rds instance has already been allocated" do
-            allocate_trial_rds.save(:validate => false)
-            space.refresh
+          it "raises an error if an db instance has already been allocated" do
+            allocate_trial_db.save(:validate => false)
+            space.reload
             expect do
-              allocate_trial_rds
-            end.to raise_error(Sequel::ValidationFailed, /space trial_quota_exceeded/)
+              allocate_trial_db
+            end.to raise_error(ActiveRecord::RecordInvalid, /org trial_quota_exceeded/i)
           end
 
-          it "does not raise an error if an rds instance has not already been allocated" do
+          it "does not raise an error if a db instance has not already been allocated" do
             expect do
-              allocate_trial_rds
+              allocate_trial_db
             end.not_to raise_error
           end
         end
 
-        context "when the service instance is not a trial rds instance" do
+        context "when the service instance is not a trial db instance" do
           it "raises an error" do
             expect do
-              Models::ServiceInstance.make(:space => space, :service_plan => paid_rds_plan)
-            end.to raise_error(Sequel::ValidationFailed, /space free_quota_exceeded/)
+              Models::ServiceInstance.make(:space => space, :service_plan => paid_db_plan)
+            end.to raise_error(ActiveRecord::RecordInvalid, /service plan paid_services_not_allowed/i)
           end
         end
       end
@@ -286,11 +309,11 @@ module VCAP::CloudController
           Models::ServiceInstance.make(:space => space,
                                        :service_plan => free_plan).
             save(:validate => false)
-          space.refresh
+          space.reload
           expect do
             Models::ServiceInstance.make(:space => space,
                                          :service_plan => free_plan)
-          end.to raise_error(Sequel::ValidationFailed, /space paid_quota_exceeded/)
+          end.to raise_error(ActiveRecord::RecordInvalid, /org paid_quota_exceeded/i)
         end
 
         it "should raise free quota error when free quota is exceeded" do
@@ -299,11 +322,11 @@ module VCAP::CloudController
           Models::ServiceInstance.make(:space => space,
                                        :service_plan => free_plan).
             save(:validate => false)
-          space.refresh
+          space.reload
           expect do
             Models::ServiceInstance.make(:space => space,
                                          :service_plan => free_plan)
-          end.to raise_error(Sequel::ValidationFailed, /space free_quota_exceeded/)
+          end.to raise_error(ActiveRecord::RecordInvalid, /org free_quota_exceeded/i)
         end
 
         it "should not raise error when quota is not exceeded" do
@@ -343,8 +366,7 @@ module VCAP::CloudController
           expect do
             Models::ServiceInstance.make(:space => space,
                                          :service_plan => paid_plan)
-          end.to raise_error(Sequel::ValidationFailed,
-                             /service_plan paid_services_not_allowed/)
+          end.to raise_error(ActiveRecord::RecordInvalid, /service plan paid_services_not_allowed/i)
         end
 
         it "should not raise error when created in paid quota" do
@@ -376,14 +398,14 @@ module VCAP::CloudController
     let(:enum_snapshots_url_matcher) {"gw.example.com:12345/gateway/v2/configurations/#{subject.gateway_name}/snapshots"}
     let(:service_auth_token) { "tokenvalue" }
     before do
-      subject.service_plan.service.update(:url => "http://gw.example.com:12345/")
-      subject.service_plan.service.service_auth_token.update(:token => service_auth_token)
+      subject.service_plan.service.update_attributes(:url => "http://gw.example.com:12345/")
+      subject.service_plan.service.service_auth_token.update_attributes(:token => service_auth_token)
     end
 
     context "when there isn't a service auth token" do
       it "fails" do
         subject.service_plan.service.service_auth_token.destroy
-        subject.refresh
+        subject.reload
         expect do
           subject.enum_snapshots
         end.to raise_error(Models::ServiceInstance::MissingServiceAuthToken)
@@ -413,18 +435,22 @@ module VCAP::CloudController
   end
 
   describe "#create_snapshot" do
-    let(:name) { 'New snapshot' }
-    subject { Models::ServiceInstance.make()}
+    let(:name) { "New snapshot" }
+
     let(:create_snapshot_url_matcher) { "gw.example.com:12345/gateway/v2/configurations/#{subject.gateway_name}/snapshots" }
+
+    subject { Models::ServiceInstance.make }
+
     before do
-      subject.service_plan.service.update(:url => "http://gw.example.com:12345/")
-      subject.service_plan.service.service_auth_token.update(:token => "tokenvalue")
+      subject.service_plan.service.update_attributes(:url => "http://gw.example.com:12345/")
+
+      subject.service_plan.service.service_auth_token.update_attributes(:token => "tokenvalue")
     end
 
     context "when there isn't a service auth token" do
       it "fails" do
         subject.service_plan.service.service_auth_token.destroy
-        subject.refresh
+        subject.reload
         expect do
           subject.create_snapshot(name)
         end.to raise_error(Models::ServiceInstance::MissingServiceAuthToken)

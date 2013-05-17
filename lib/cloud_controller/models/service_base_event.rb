@@ -2,8 +2,5 @@
 
 module VCAP::CloudController::Models
   class ServiceBase < BillingEvent
-    def validate
-      super
-    end
   end
 end

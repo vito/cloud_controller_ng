@@ -2,7 +2,7 @@
 
 require "bcrypt"
 require "sinatra"
-require "sequel"
+require "active_record"
 require "thin"
 require "yajl"
 # require "yaml"
@@ -23,18 +23,8 @@ module VCAP::CloudController
   Errors = VCAP::Errors
 
   class Controller < Sinatra::Base
-    register Sinatra::VCAP
-
-    attr_reader :config
-
-    vcap_configure(:logger_name => "cc.api",
-                   :reload_path => File.dirname(__FILE__))
-
-    def initialize(config, token_decoder)
-      @config = config
-      @token_decoder = token_decoder
-      super()
-    end
+    use ActiveRecord::QueryCache
+    use ActiveRecord::ConnectionAdapters::ConnectionManagement
 
     before do
       VCAP::CloudController::SecurityContext.clear
@@ -50,17 +40,30 @@ module VCAP::CloudController
         end
 
         if uaa_id
-          user = Models::User.find(:guid => uaa_id.to_s)
+          user = Models::User.find_by_guid(uaa_id.to_s)
           user ||= create_admin_if_in_config(token_information)
           user ||= create_admin_if_in_token(token_information)
         end
 
         VCAP::CloudController::SecurityContext.set(user, token_information)
       rescue => e
-        logger.warn("Invalid bearer token: #{e.message} #{e.backtrace}")
+        logger.warn("Invalid bearer token: #{e.message}\n#{e.backtrace.join("\n")}")
       end
 
       validate_scheme(user, VCAP::CloudController::SecurityContext.current_user_is_admin?)
+    end
+
+    register Sinatra::VCAP
+
+    attr_reader :config
+
+    vcap_configure(:logger_name => "cc.api",
+                   :reload_path => File.dirname(__FILE__))
+
+    def initialize(config, token_decoder)
+      @config = config
+      @token_decoder = token_decoder
+      super()
     end
 
     # TODO: remove from usage in cloud_controller_spec.rb

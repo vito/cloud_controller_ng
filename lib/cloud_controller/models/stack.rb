@@ -1,26 +1,22 @@
 # Copyright (c) 2009-2012 VMware, Inc.
 
 module VCAP::CloudController::Models
-  class Stack < Sequel::Model
+  class Stack < ActiveRecord::Base
+    include CF::ModelGuid
+    include CF::ModelRelationships
+
     class MissingConfigFileError < StandardError; end
     class MissingDefaultStackError < StandardError; end
 
-    one_to_many :apps
+    has_many :apps, :dependent => :destroy
 
-    add_association_dependencies :apps => :destroy
-
-    plugin :serialization
+    validates :name, :description, :presence => true
+    validates :name, :uniqueness => { :case_sensitive => false }
 
     export_attributes :name, :description
     import_attributes :name, :description
 
     strip_attributes  :name
-
-    def validate
-      validates_presence :name
-      validates_presence :description
-      validates_unique   :name
-    end
 
     def self.configure(file_path)
       @config_file = if file_path
@@ -41,7 +37,7 @@ module VCAP::CloudController::Models
     def self.default
       raise MissingConfigFileError unless @config_file
 
-      self[:name => @config_file.default].tap do |found_stack|
+      find_by_name(@config_file.default).tap do |found_stack|
         unless found_stack
           raise MissingDefaultStackError,
             "Default stack with name '#{@config_file.default}' not found"
@@ -52,8 +48,14 @@ module VCAP::CloudController::Models
     private
 
     def self.populate_from_hash(hash)
-      update_or_create(:name => hash["name"]) do |r|
-        r.update(:description => hash["description"])
+      if existing = find_by_name(hash["name"])
+        existing.description = hash["description"]
+        existing.save!
+      else
+        new(
+          :name => hash["name"],
+          :description => hash["description"]
+        ).save!
       end
     end
 

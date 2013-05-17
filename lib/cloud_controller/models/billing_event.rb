@@ -1,18 +1,20 @@
 # Copyright (c) 2009-2012 VMware, Inc.
 
 module VCAP::CloudController::Models
-  class BillingEvent < Sequel::Model
-    plugin :single_table_inheritance, :kind
+  class BillingEvent < ActiveRecord::Base
+    include CF::ModelGuid
+    include CF::ModelRelationships
 
-    def validate
-      validates_presence :timestamp
-      validates_presence :organization_guid
-      validates_presence :organization_name
+    def self.inheritance_column
+      "kind"
     end
 
-    def self.user_visibility_filter(user)
+    validates :timestamp, :organization_guid, :organization_name,
+              :presence => true
+
+    def self.user_visibility_filter(user, set = self)
       # don't allow anyone to enumerate other than the admin
-      user_visibility_filter_with_admin_override(:id => nil)
+      set.where(:id => nil)
     end
   end
 end

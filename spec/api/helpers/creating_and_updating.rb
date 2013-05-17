@@ -67,8 +67,8 @@ module VCAP::CloudController::ApiSpecHelper
             it "should return the json encoded object in the entity hash" do
               non_synthetic_creation_opts.keys.each do |k|
                 unless k == "guid"
-                  entity[k.to_s].should_not be_nil
                   entity[k.to_s].should == creation_opts[k]
+                  entity[k.to_s].should_not be_nil
                 end
               end
             end
@@ -87,7 +87,7 @@ module VCAP::CloudController::ApiSpecHelper
 
               it "should have created the object pointed to in the location header" do
                 obj_id = last_response.location.split("/").last
-                obj = opts[:model].find(:guid => obj_id)
+                obj = opts[:model].find_by_guid(obj_id)
                 non_synthetic_creation_opts.keys.each do |k|
                   obj.send(k).should == creation_opts[k]
                 end
@@ -97,13 +97,13 @@ module VCAP::CloudController::ApiSpecHelper
                 Time.parse(metadata["created_at"]).should be_recent
               end
 
-              it "should not have an updated_at timestamp" do
-                metadata["updated_at"].should be_nil
+              it "should have a recent updated_at timestamp" do
+                Time.parse(metadata["updated_at"]).should be_recent
               end
             when :put
               it "should not update the created_at timestamp" do
                 metadata["created_at"].should_not be_nil
-                metadata["created_at"].should == @orig_created_at.to_s
+                Time.parse(metadata["created_at"]).should == Time.parse(@orig_created_at.to_s)
               end
 
               it "should have a recent updated_at timestamp" do
@@ -162,7 +162,7 @@ module VCAP::CloudController::ApiSpecHelper
 
               if verb == :put
                 it "should not change attributes other than the ones specified" do
-                  @obj.refresh
+                  @obj.reload
                   @expected_hash.should == @obj.to_hash
                 end
               end
@@ -182,14 +182,16 @@ module VCAP::CloudController::ApiSpecHelper
               context "with duplicate attributes other than #{new_attr}" do
                 # FIXME: this is a cut/paste from the model spec, refactor
                 let(:dup_opts) do
-                  if opts[:model].associations.include?(new_attr)
+                  if opts[:model].reflections.key?(new_attr)
                     new_attr = "#{new_attr}_id"
                   end
 
                   # FIXME: this name isn't right now that it is shared with PUT
                   new_creation_opts = creation_opts.dup
                   orig_obj = opts[:model].create do |instance|
-                    instance.set_all(new_creation_opts)
+                    new_creation_opts.each do |k, v|
+                      instance.send(:"#{k}=", v)
+                    end
                   end
                   orig_obj.should be_valid
 

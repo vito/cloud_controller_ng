@@ -50,7 +50,7 @@ module VCAP::CloudController
             @app.state = "STARTED"
             @app.instances = 10
             @app.save
-            @app.refresh
+            @app.reload
 
             file_uri_result = DeaClient::FileUriResult.new(
               :file_uri_v1 => "file_uri/",
@@ -81,7 +81,7 @@ module VCAP::CloudController
             @app.state = "STARTED"
             @app.instances = 10
             @app.save
-            @app.refresh
+            @app.reload
 
             file_uri_result = DeaClient::FileUriResult.new(
               :file_uri_v1 => "file_uri/path",
@@ -114,7 +114,7 @@ module VCAP::CloudController
             @app.state = "STARTED"
             @app.instances = 10
             @app.save
-            @app.refresh
+            @app.reload
 
             file_uri_result = DeaClient::FileUriResult.new(
               :file_uri_v1 => "file_uri/",
@@ -148,7 +148,7 @@ module VCAP::CloudController
             @app.state = "STARTED"
             @app.instances = 10
             @app.save
-            @app.refresh
+            @app.reload
 
             file_uri_result = DeaClient::FileUriResult.new(
               :file_uri_v1 => "file_uri/",
@@ -184,7 +184,7 @@ module VCAP::CloudController
             @app.state = "STARTED"
             @app.instances = 10
             @app.save
-            @app.refresh
+            @app.reload
 
             to_return = DeaClient::FileUriResult.new(
               :file_uri_v1 => "file_uri/",
@@ -219,7 +219,7 @@ module VCAP::CloudController
             @app.state = "STARTED"
             @app.instances = 10
             @app.save
-            @app.refresh
+            @app.reload
 
             to_return = DeaClient::FileUriResult.new(
               :file_uri_v1 => "http://12.34.56.78/path",
@@ -245,7 +245,7 @@ module VCAP::CloudController
             @app.state = "STARTED"
             @app.instances = 10
             @app.save
-            @app.refresh
+            @app.reload
 
             to_return = DeaClient::FileUriResult.new(
               :file_uri_v1 => "http://1.2.3.4/foo/path",
@@ -271,7 +271,7 @@ module VCAP::CloudController
             @app.state = "STARTED"
             @app.instances = 10
             @app.save
-            @app.refresh
+            @app.reload
 
             file_uri_result = DeaClient::FileUriResult.new(
               :file_uri_v1 => "file_uri/path",
@@ -308,7 +308,7 @@ module VCAP::CloudController
             @app.state = "STARTED"
             @app.instances = 10
             @app.save
-            @app.refresh
+            @app.reload
 
             to_return = DeaClient::FileUriResult.new(
               :file_uri_v1 => "file_uri/",

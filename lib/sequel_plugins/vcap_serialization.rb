@@ -2,7 +2,7 @@
 
 require "yajl"
 
-module Sequel::Plugins::VcapSerialization
+module VCAP::ModelSerialization
   # This plugin implements serialization and deserialization of
   # Sequel::Models to/from hashes and json.
 
@@ -19,10 +19,14 @@ module Sequel::Plugins::VcapSerialization
     def to_hash(opts = {})
       hash = {}
       attrs = self.class.export_attrs || []
+
       attrs.each do |k|
-        hash[k.to_s] = send(k) if opts[:only].nil? || opts[:only].include?(k)
+        next unless opts[:only].nil? || opts[:only].include?(k)
+
+        hash[k] = send(k)
       end
-      hash
+
+      normalize_attributes(hash)
     end
 
     # Return a json serialization of the model instance containing only
@@ -60,11 +64,33 @@ module Sequel::Plugins::VcapSerialization
     def update_from_hash(hash, opts = {})
       update_opts = self.class.update_or_create_options(hash, opts)
 
-      # Cannot use update(update_opts) because it does not
-      # update updated_at timestamp when no changes are being made.
-      # Arguably this should avoid updating updated_at if nothing changed.
-      set_all(update_opts)
-      save
+      self.attributes = update_opts
+
+      save!
+    end
+
+    private
+
+    def normalize_attributes(value)
+      case value
+      when Hash
+        stringified = {}
+
+        value.each do |k, v|
+          stringified[k.to_s] = normalize_attributes(v)
+        end
+
+        stringified
+      when Array
+        value.collect { |x| normalize_attributes(x) }
+      when Numeric, nil, true, false
+        value
+      when Time
+        value.to_s(
+          VCAP::CloudController::RestController::ObjectSerialization.timestamp_format)
+      else
+        value.to_s
+      end
     end
   end
 
@@ -82,7 +108,7 @@ module Sequel::Plugins::VcapSerialization
     def to_json(opts = {})
       # TODO: pagination
       order_attr = @default_order_by || :id
-      elements = order_by(order_attr.asc).map { |e| e.to_hash(opts) }
+      elements = all(:order => "#{order_attr} ASC").map { |e| e.to_hash(opts) }
       Yajl::Encoder.encode(elements)
     end
 
@@ -111,7 +137,7 @@ module Sequel::Plugins::VcapSerialization
     # @return [Sequel::Model] The created model.
     def create_from_hash(hash, opts = {})
       create_opts = update_or_create_options(hash, opts)
-      create {|instance| instance.set_all(create_opts) }
+      new(create_opts).tap(&:save!)
     end
 
     # Instantiates, but does not save, a new model instance from the
@@ -150,12 +176,14 @@ module Sequel::Plugins::VcapSerialization
       self.import_attrs = attributes
     end
 
-    # Not intented to be called by consumers of the API, but needed
+    # Not intended to be called by consumers of the API, but needed
     # by instance of the class, so it can't be made private.
     def update_or_create_options(hash, opts)
       results = {}
+
       attrs = self.import_attrs || []
-      attrs = attrs - opts[:only] unless opts[:only].nil?
+      attrs -= opts[:only] if opts[:only]
+
       attrs.each do |attr|
         key = nil
         if hash.has_key?(attr)
@@ -163,11 +191,19 @@ module Sequel::Plugins::VcapSerialization
         elsif hash.has_key?(attr.to_s)
           key = attr.to_s
         end
-        results[attr] = hash[key] unless key.nil?
+
+        results[attr] = hash[key] if key
       end
+
       results
     end
 
     attr_accessor :export_attrs, :import_attrs
   end
+
+  ActiveRecord::Base.class_eval do
+    extend(ClassMethods)
+    include(InstanceMethods)
+  end
 end
+

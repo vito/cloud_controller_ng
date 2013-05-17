@@ -1,11 +1,25 @@
 module VCAP::CloudController::Models
-  class ServiceBinding < Sequel::Model
+  class ServiceBinding < ActiveRecord::Base
+    include CF::ModelGuid
+    include CF::ModelRelationships
+
     class InvalidAppAndServiceRelation < StandardError; end
 
-    many_to_one :app
-    many_to_one :service_instance
+    belongs_to :app
+    belongs_to :service_instance
 
-    default_order_by  :id
+    validates :app, :service_instance, :presence => true
+
+    validates :service_instance_id, :uniqueness => { :scope => :app_id }
+
+    validate :app_and_service_instance_must_be_in_same_space
+
+    before_create :bind_on_gateway
+    after_create :mark_app_for_restaging
+    after_update :mark_app_for_restaging
+    before_destroy :unbind_on_gateway, :mark_app_for_restaging
+    after_rollback :unbind_on_gateway, :if => proc { @bound_on_gateway }
+    after_commit { @bound_on_gateway = false }
 
     export_attributes :app_guid, :service_instance_guid, :credentials,
                       :binding_options, :gateway_data, :gateway_name
@@ -13,16 +27,11 @@ module VCAP::CloudController::Models
     import_attributes :app_guid, :service_instance_guid, :credentials,
                       :binding_options, :gateway_data
 
-    def validate
-      validates_presence :app
-      validates_presence :service_instance
-      validates_unique [:app_id, :service_instance_id]
-
-      # TODO: make this a standard validation
-      validate_app_and_service_instance(app, service_instance)
+    def space
+      service_instance.space
     end
 
-    def validate_app_and_service_instance(app, service_instance)
+    def app_and_service_instance_must_be_in_same_space
       if app && service_instance
         unless service_instance.space == app.space
           raise InvalidAppAndServiceRelation.new(
@@ -31,44 +40,13 @@ module VCAP::CloudController::Models
       end
     end
 
-    def space
-      service_instance.space
-    end
-
-    def before_create
-      super
-      bind_on_gateway
-    end
-
-    def after_create
-      mark_app_for_restaging
-    end
-
-    def after_update
-      mark_app_for_restaging
-    end
-
-    def before_destroy
-      unbind_on_gateway
-      mark_app_for_restaging
-    end
-
-    def after_rollback
-      unbind_on_gateway if @bound_on_gateway
-      super
-    end
-
-    def after_commit
-      @bound_on_gateway = false
-    end
-
     def mark_app_for_restaging
       app.mark_for_restaging(:save => true) if app
     end
 
-    def self.user_visibility_filter(user)
-      user_visibility_filter_with_admin_override(
-        :service_instance => ServiceInstance.user_visible)
+    def self.user_visibility_filter(user, set = self)
+      set.where(
+        :service_instance_id => ServiceInstance.user_visibility_filter(user))
     end
 
     def credentials=(val)

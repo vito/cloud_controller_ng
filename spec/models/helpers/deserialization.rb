@@ -8,7 +8,7 @@ module VCAP::CloudController::ModelSpecHelper
 
         obj = described_class.make
         opts[:required_attributes].each do |attr|
-          if described_class.associations.include?(attr)
+          if described_class.reflections.key?(attr)
             hash["#{attr}_guid"] = obj.send(attr).guid
           else
             hash[attr] = obj.send(attr)
@@ -35,7 +35,7 @@ module VCAP::CloudController::ModelSpecHelper
       context "without the :#{without_attr.to_s} attribute" do
         let(:json_data) do
           obj = described_class.create do |instance|
-            instance.set_all(creation_opts)
+            instance.update_attributes(creation_opts)
           end
           hash = obj.to_hash
           obj.destroy
@@ -52,19 +52,19 @@ module VCAP::CloudController::ModelSpecHelper
           end
 
           hash.select! do |k, v|
-            k != without_attr.to_s and k != "#{without_attr}_guid"
+            k != without_attr.to_s && k != "#{without_attr}_guid"
           end
 
           Yajl::Encoder.encode(hash)
         end
 
-        it "should fail due to Sequel validations" do
+        it "should fail due to validations" do
           # keep this out of the lambda to make sure we are testing the
           # right exception
           data = json_data
           expect {
-            obj = described_class.create_from_json(data)
-          }.to raise_error Sequel::ValidationFailed, /#{without_attr}/
+            described_class.create_from_json(data)
+          }.to raise_error ActiveRecord::RecordInvalid
         end
       end
     end

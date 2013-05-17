@@ -41,7 +41,7 @@ module VCAP::CloudController
           {
             :guid => space.guid,
             :name => space.name,
-            :service_count => space.service_instances_dataset.count,
+            :service_count => space.service_instances.count,
           }.merge(space_summary)
         end
       )

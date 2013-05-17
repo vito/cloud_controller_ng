@@ -78,9 +78,7 @@ module VCAP::CloudController
       id_for_next_token = nil
 
       apps = {}
-      Models::App.where { |app|
-        app.id > last_id
-      }.order(:id).limit(batch_size).each do |app|
+      Models::App.where("id > ?", last_id).order(:id).limit(batch_size).each do |app|
         hash = {}
         export_attributes = [
           :instances,
@@ -90,13 +88,14 @@ module VCAP::CloudController
           :version
         ]
         export_attributes.each do |field|
-          hash[field.to_s] = app.values.fetch(field)
+          hash[field.to_s] = app.send(field)
         end
         hash["id"] = app.guid
-        hash["updated_at"] = app.updated_at || app.created_at
+        hash["updated_at"] = app.updated_at
         apps[app.guid] = hash
         id_for_next_token = app.id
       end
+
       BulkResponse.new(
         :results => apps,
         :bulk_token => { "id" => id_for_next_token }

@@ -20,28 +20,30 @@ module VCAP::CloudController
     query_parameters :app_guid, :service_instance_guid
 
     def self.translate_validation_exception(e, attributes)
-      unique_errors = e.errors.on([:app_id, :service_instance_id])
-      if unique_errors && unique_errors.include?(:unique)
+      service_instance_errors = e.record.errors[:service_instance_id]
+      if service_instance_errors && service_instance_errors.include?(:taken)
         Errors::ServiceBindingAppServiceTaken.new(
           "#{attributes["app_guid"]} #{attributes["service_instance_guid"]}")
       else
-        Errors::ServiceBindingInvalid.new(e.errors.full_messages)
+        Errors::ServiceBindingInvalid.new(e.record.errors.full_messages)
       end
     end
 
     def update_binding(gateway_name)
       req = decode_message_body
 
-      binding_handle = Models::ServiceBinding[:gateway_name => gateway_name]
+      binding_handle = Models::ServiceBinding.where(:gateway_name => gateway_name).first
       raise Errors::ServiceBindingNotFound, "gateway_name=#{gateway_name}" unless binding_handle
 
-      instance_handle = Models::ServiceInstance[:id => binding_handle[:service_instance_id]]
-      plan_handle = Models::ServicePlan[:id => instance_handle[:service_plan_id]]
-      service_handle = Models::Service[:id => plan_handle[:service_id]]
+      instance_handle = Models::ServiceInstance.find(binding_handle[:service_instance_id])
+      plan_handle = Models::ServicePlan.find(instance_handle[:service_plan_id])
+      service_handle = Models::Service.find(plan_handle[:service_id])
 
       ServiceValidator.validate_auth_token(req.token, service_handle)
 
-      binding_handle.update(:gateway_data => req.gateway_data, :credentials => req.credentials)
+      binding_handle.update_attributes(
+        :gateway_data => req.gateway_data,
+        :credentials => req.credentials)
     end
 
     put "/v2/service_bindings/internal/:gateway_name", :update_binding

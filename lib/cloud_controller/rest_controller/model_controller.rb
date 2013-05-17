@@ -1,5 +1,7 @@
 # Copyright (c) 2009-2012 VMware, Inc.
 
+require "active_record/locking/pessimistic"
+
 module VCAP::CloudController::RestController
 
   # Wraps models and presents collection and per object rest end points
@@ -8,17 +10,24 @@ module VCAP::CloudController::RestController
 
     # Create operation
     def create
-      logger.debug "create: #{request_attrs}"
-
       json_msg = self.class::CreateMessage.decode(body)
       @request_attrs = json_msg.extract(:stringify_keys => true)
+
+      logger.debug "create: #{request_attrs}"
+
       raise InvalidRequest unless request_attrs
 
       before_create if respond_to? :before_create
       obj = nil
-      model.db.transaction do
-        obj = model.create_from_hash(request_attrs)
-        validate_access(:create, obj, user, roles)
+
+      begin
+        model.transaction do
+          obj = model.create_from_hash(request_attrs)
+          validate_access(:create, obj, user, roles)
+        end
+      rescue => e
+        logger.debug "create failed: #{e}"
+        raise
       end
 
       [
@@ -50,8 +59,7 @@ module VCAP::CloudController::RestController
 
       before_modify(obj)
 
-      model.db.transaction do
-        obj.lock!
+      obj.with_lock do
         obj.update_from_hash(request_attrs)
       end
 
@@ -74,10 +82,14 @@ module VCAP::CloudController::RestController
     # Enumerate operation
     def enumerate
       raise NotAuthenticated unless user || roles.admin?
+
       ds = model.user_visible
-      logger.debug "enumerate: #{ds.sql}"
+
+      logger.debug "enumerate: #{ds.to_sql}"
       qp = self.class.query_parameters
+
       ds = Query.filtered_dataset_from_query_params(model, ds, qp, @opts)
+
       Paginator.render_json(self.class, ds, self.class.path,
                             @opts.merge(:serialization => serialization))
     end
@@ -93,7 +105,7 @@ module VCAP::CloudController::RestController
 
       obj = find_id_and_validate_access(:read, id)
 
-      associated_model = model.association_reflection(name).associated_class
+      associated_model = model.reflections[name].klass
 
       associated_controller =
         VCAP::CloudController.controller_from_model_name(associated_model)
@@ -170,7 +182,7 @@ module VCAP::CloudController::RestController
     # the use has access.
     def find_id_and_validate_access(op, id)
       logger.debug("find_id_and_validate_access: #{op} #{id}")
-      obj = model.find(:guid => id)
+      obj = model.find_by_guid(id)
       logger.debug("found: #{op} #{id}")
       if obj
         validate_access(op, obj, user, roles)
@@ -225,8 +237,18 @@ module VCAP::CloudController::RestController
     end
 
     def raise_if_has_associations!(obj)
-      associations = obj.class.associations.select do |association|
-        obj.has_one_to_many?(association) || obj.has_one_to_one?(association)
+      associations = []
+      
+      obj.class.reflections.each do |reflection, meta|
+        case meta.macro
+        when :has_one
+          associations << reflection if obj.send(reflection)
+        when :has_many
+          associations << reflection unless obj.send(reflection).empty?
+        when :belongs_to, :has_and_belongs_to_many
+        else
+          raise "TODO AR: #{obj.class.table_name} #{meta.macro} #{reflection}"
+        end
       end
 
       if associations.any?

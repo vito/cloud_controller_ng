@@ -3,22 +3,73 @@
 require "cloud_controller/dea/dea_client"
 
 module VCAP::CloudController::Models
-  class Route < Sequel::Model
+  class Route < ActiveRecord::Base
+    include CF::ModelGuid
+    include CF::ModelRelationships
+
     class InvalidDomainRelation < InvalidRelation; end
     class InvalidAppRelation < InvalidRelation; end
 
-    many_to_one :domain
-    many_to_one :space
+    belongs_to :domain
+    belongs_to :space
 
-    many_to_many :apps,
-                 :before_add => :validate_app,
-                 :after_add => :mark_app_routes_changed,
-                 :after_remove => :mark_app_routes_changed
+    has_and_belongs_to_many :apps,
+      :before_add => :validate_app,
+      :after_add => :mark_app_routes_changed,
+      :after_remove => :mark_app_routes_changed
 
-    add_association_dependencies :apps => :nullify
+    validates :domain, :space, :presence => true
+
+    validates :host, :format => /^([\w\-]*)$/, :uniqueness => {
+      :scope => :domain_id,
+      :case_sensitive => false
+    }
+
+    validate :host_must_be_empty_if_domain_is_not_wildcard
+    validate :host_cannot_be_empty_if_domain_is_shared
+    validate :domain_must_be_in_same_space
+    validate :host_must_not_be_nil
 
     export_attributes :host, :domain_guid, :space_guid
     import_attributes :host, :domain_guid, :space_guid, :app_guids
+
+    def organization
+      space.organization
+    end
+
+    def host_must_be_empty_if_domain_is_not_wildcard
+      unless domain && domain.wildcard
+        errors.add(:host, :host_not_empty) unless host && host.empty?
+      end
+    end
+
+    def host_cannot_be_empty_if_domain_is_shared
+      if domain && domain.owning_organization.nil? && host.empty?
+        errors.add(:host, :empty_with_shared_domain)
+      end
+    end
+
+    def host_must_not_be_nil
+      errors.add(:host, :presence) if host.nil?
+    end
+
+    def domain_must_be_in_same_space
+      if space && domain && !space.domains.exists?(:id => domain.id)
+        errors.add(:domain, :invalid_relation)
+      end
+    end
+
+    def validate_app(app)
+      return unless (space && app && domain)
+
+      unless app.space == space
+        raise InvalidAppRelation.new(app.guid)
+      end
+
+      unless space.domains.include?(domain)
+        raise InvalidDomainRelation.new(domain.guid)
+      end
+    end
 
     def fqdn
       !host.empty? ? "#{host}.#{domain.name}" : domain.name
@@ -35,56 +86,22 @@ module VCAP::CloudController::Models
       }
     end
 
-    def organization
-      space.organization if space
-    end
+    def self.user_visibility_filter(user, set = self)
+      orgs =
+        Organization.includes(:managers, :auditors).where("
+          organizations_managers.user_id = :user OR
+            organizations_auditors.user_id = :user
+        ", :user => user.id).all
 
-    def validate
-      validates_presence :domain
-      validates_presence :space
+      spaces =
+        Space.includes(:developers, :auditors, :managers).where("
+          spaces_developers.user_id = :user OR
+            spaces_auditors.user_id = :user OR
+            spaces_managers.user_id = :user OR
+            spaces.organization_id IN (:orgs)
+        ", :user => user.id, :orgs => orgs).all
 
-      errors.add(:host, :presence) if host.nil?
-
-      validates_format   /^([\w\-]+)$/, :host if (host && !host.empty?)
-      validates_unique   [:host, :domain_id]
-
-      if domain
-        unless domain.wildcard
-          errors.add(:host, :host_not_empty) unless (host.nil? || host.empty?)
-        end
-
-        if space && space.domains_dataset.filter(:id => domain.id).count < 1
-          errors.add(:domain, :invalid_relation)
-        end
-      end
-    end
-
-    def validate_app(app)
-      return unless (space && app && domain)
-
-      unless app.space == space
-        raise InvalidAppRelation.new(app.guid)
-      end
-
-      unless space.domains.include?(domain)
-        raise InvalidDomainRelation.new(domain.guid)
-      end
-    end
-
-    def self.user_visibility_filter(user)
-      orgs = Organization.filter({
-        :managers => [user],
-        :auditors => [user],
-      }.sql_or)
-
-      spaces = Space.filter({
-        :developers => [user],
-        :auditors => [user],
-        :managers => [user],
-        :organization => orgs,
-      }.sql_or)
-
-      user_visibility_filter_with_admin_override(:space => spaces)
+      set.where(:space_id => spaces)
     end
 
     private

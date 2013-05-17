@@ -12,20 +12,20 @@ module VCAP::CloudController::ModelSpecHelper
       @obj = klass.make
       @attributes = {}
       attribute_names.each do |attr|
-        key = if @klass.associations.include?(attr.to_sym)
+        key = if @klass.reflections.key?(attr.to_sym)
                 "#{attr}_id"
               else
                 attr
               end
         rel_attr = attr.to_s.chomp("_id")
-        attr = rel_attr if @klass.associations.include?(rel_attr.to_sym)
+        attr = rel_attr if @klass.reflections.key?(rel_attr.to_sym)
         @attributes[key] = @obj.send(attr) if @obj.respond_to?(attr)
       end
       hash
     end
 
     def refresh
-      @klass.associations.each do |name|
+      @klass.attribute_names.each do |name|
         association = @obj.send(name)
         ["id", "guid"].each do |k|
           key = "#{name}_#{k}"

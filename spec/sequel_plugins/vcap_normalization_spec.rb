@@ -3,20 +3,35 @@
 require File.expand_path("../spec_helper", __FILE__)
 
 describe "Sequel::Plugins::VcapNormalization" do
-  before do
+  before(:all) do
     reset_database
+    test_migration
+  end
 
-    db.create_table :test do
-      primary_key :id
+  after(:all) { reset_test }
 
-      String :val1
-      String :val2
-      String :val3
+  def test_migration
+    ActiveRecord::Migration.class_eval do
+      create_table :test do |t|
+        t.string :val1
+        t.string :val2
+        t.string :val3
+      end
     end
+  end
 
-    @c = Class.new(Sequel::Model)
-    @c.plugin :vcap_normalization
-    @c.set_dataset(db[:test])
+  def reset_test
+    ActiveRecord::Migration.class_eval do
+      drop_table :test
+    end
+  end
+
+  before do
+    reset_test
+    test_migration
+
+    @c = Class.new(ActiveRecord::Base)
+    @c.table_name = "test"
     @m = @c.new
   end
 
@@ -33,6 +48,7 @@ describe "Sequel::Plugins::VcapNormalization" do
       @m.val1 = "hi "
       @m.val2 = " bye"
       @m.val3 = " with spaces "
+      @m.save
       @m.val1.should == "hi "
       @m.val2.should == "bye"
       @m.val3.should == "with spaces"

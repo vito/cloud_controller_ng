@@ -29,26 +29,27 @@ module VCAP::CloudController
       validate_access(label, provider)
 
       VCAP::CloudController::SecurityContext.set(self.class.legacy_api_user)
-      Sequel::Model.db.transaction do
-        service = Models::Service.update_or_create(
+      Models::Service.transaction do
+        service = Models::Service.where(
           :label => label, :provider => provider
-        ) do |svc|
-          if svc.new?
-            logger.debug2("Creating service")
-          else
-            logger.debug2("Updating service #{svc.guid}")
-          end
-          svc.set(
-            :url         => req.url,
-            :description => req.description,
-            :version     => version,
-            :acls        => req.acls,
-            :timeout     => req.timeout,
-            :info_url    => req.info_url,
-            :active      => req.active,
-            :extra       => req.extra,
-          )
+        ).first_or_create
+
+        if service.new_record?
+          logger.debug2("Creating service")
+        else
+          logger.debug2("Updating service #{service.guid}")
         end
+
+        service.update_attributes(
+          :url         => req.url,
+          :description => req.description,
+          :version     => version,
+          :acls        => req.acls,
+          :timeout     => req.timeout,
+          :info_url    => req.info_url,
+          :active      => req.active,
+          :extra       => req.extra,
+        )
 
         update_plans(req, service, label)
       end
@@ -70,27 +71,32 @@ module VCAP::CloudController
 
       new_plan_attrs.each {|attrs| attrs["description"] ||= "dummy description" }
 
-      old_plan_names = Models::ServicePlan.dataset.
-        join(:services, :id => :service_id).
-        filter(:label => label, :provider => DEFAULT_PROVIDER).
-        select_map(:name.qualify(:service_plans))
+      old_plan_names = Models::ServicePlan.joins(:service).
+        where("services.label = :label AND services.provider = :provider",
+              :label => label, :provider => DEFAULT_PROVIDER).collect(&:name)
 
       new_plan_attrs.each do |attrs|
-        Models::ServicePlan.update_or_create(
+        instance = Models::ServicePlan.where(
           service_id: service.id,
           name: attrs['name']
-        ) do |instance|
-          instance.set_fields(attrs, %w(name free description extra))
-        end
+        ).first_or_create
+
+        instance.attributes =
+          %w(name free description extra).inject({}) do |h, k|
+            h[k.to_sym] = attrs[k]
+            h
+          end
+
+        instance.save!
       end
 
       missing = old_plan_names - new_plan_attrs.map {|attrs| attrs["name"]}
       if missing.any?
         logger.info("Attempting to remove old plans: #{missing.inspect}")
-        service.service_plans_dataset.filter(:name => missing).each do |plan|
+        service.service_plans.where(:name => missing).each do |plan|
           begin
             plan.destroy
-          rescue Sequel::DatabaseError
+          rescue ActiveRecord::StatementInvalid
             # If something is hanging on to this plan, let it live
           end
         end
@@ -100,15 +106,18 @@ module VCAP::CloudController
     def list_handles(label_and_version, provider = DEFAULT_PROVIDER)
       (label, version) = label_and_version.split("-")
 
-      service = Models::Service[:label => label, :provider => provider]
+      service = Models::Service.where(:label => label, :provider => provider).first
       raise ServiceNotFound, "label=#{label} provider=#{provider}" unless service
+
       validate_access(label, provider)
       logger.debug("Listing handles for service: #{service.inspect}")
 
       handles = []
-      plans_ds = service.service_plans_dataset
-      instances_ds = Models::ServiceInstance.filter(:service_plan => plans_ds)
-      handles += instances_ds.map do |si|
+
+      plans = service.service_plans
+      instances = Models::ServiceInstance.where(:service_plan_id => plans)
+
+      handles += instances.map do |si|
         {
           :service_id => si.gateway_name,
           :credentials => si.credentials,
@@ -116,16 +125,16 @@ module VCAP::CloudController
         }
       end
 
-      service_bindings_ds = Models::ServiceBinding.filter(
-        :service_instance => instances_ds)
+      bindings = Models::ServiceBinding.where(:service_instance_id => instances)
 
-      handles += service_bindings_ds.map do |sb|
+      handles += bindings.map do |sb|
         {
           :service_id => sb.gateway_name,
           :credentials => sb.credentials,
           :configuration => sb.gateway_data,
         }
       end
+
       Yajl::Encoder.encode({:handles => handles})
     end
 
@@ -135,7 +144,7 @@ module VCAP::CloudController
       validate_access(label, provider)
 
       VCAP::CloudController::SecurityContext.set(self.class.legacy_api_user)
-      svc_guid = Models::Service[:label => label, :provider => provider].guid
+      svc_guid = Models::Service.where(:label => label, :provider => provider).first.guid
       svc_api = VCAP::CloudController::Service.new(config, logger, env, params, body)
       svc_api.dispatch(:delete, svc_guid)
 
@@ -145,9 +154,9 @@ module VCAP::CloudController
     def validate_access(label, provider = DEFAULT_PROVIDER)
       raise NotAuthorized unless auth_token = env[SERVICE_TOKEN_KEY]
 
-      svc_auth_token = Models::ServiceAuthToken[
-        :label => label, :provider => provider,
-      ]
+      svc_auth_token = Models::ServiceAuthToken.where(
+        :label => label, :provider => provider
+      ).first
 
       unless (svc_auth_token && svc_auth_token.token_matches?(auth_token))
         logger.warn("unauthorized service offering")
@@ -160,7 +169,8 @@ module VCAP::CloudController
 
       validate_access(label, provider)
 
-      service = Models::Service[:label => label, :provider => provider]
+      service = Models::Service.where(:label => label, :provider => provider).first
+
       offering = {
         :label => label,
         :provider => provider,
@@ -182,12 +192,13 @@ module VCAP::CloudController
         # :supported_versions,
         # :version_aliases,
       ].each do |field|
-          if service.values[:field]
-            offering[:field] = service[:field]
-          end
+        if val = service.attributes[field]
+          offering[field] = val
         end
-        offering[:plans] = service.service_plans.map(&:name)
-        Yajl::Encoder.encode(offering)
+      end
+
+      offering[:plans] = service.service_plans.map(&:name)
+      Yajl::Encoder.encode(offering)
     end
 
     # NB: ambiguous API: the handle id appears in both URI and body.
@@ -203,26 +214,27 @@ module VCAP::CloudController
 
       req = VCAP::Services::Api::HandleUpdateRequest.decode(body)
 
-      service = Models::Service[:label => label, :provider => provider]
+      service = Models::Service.where(:label => label, :provider => provider).first
       raise ServiceNotFound, "label=#{label} provider=#{provider}" unless service
 
+      plans = service.service_plans
+      instances = Models::ServiceInstance.where(:service_plan_id => plans)
+      bindings = Models::ServiceBinding.where(:service_instance_id => instances)
 
-      plans_ds = service.service_plans_dataset
-      instances_ds = Models::ServiceInstance.filter(:service_plan => plans_ds)
-      bindings_ds = Models::ServiceBinding.filter(:service_instance => instances_ds)
-
-      if instance = instances_ds[:gateway_name => id]
-        instance.set(
+      if instance = instances.where(:gateway_name => id).first
+        instance.attributes = {
           :gateway_data => req.configuration,
           :credentials => req.credentials,
-        )
-        instance.save_changes
-      elsif binding = bindings_ds[:gateway_name => id]
-        binding.set(
+        }
+
+        instance.save!
+      elsif binding = bindings.where(:gateway_name => id).first
+        binding.attributes = {
           :configuration => req.configuration,
           :credentials => req.credentials,
-        )
-        binding.save_changes
+        }
+
+        binding.save!
       else
         # TODO: shall we add a HandleNotFound?
         raise ServiceInstanceNotFound, "label=#{label} provider=#{provider} id=#{id}"
@@ -236,7 +248,7 @@ module VCAP::CloudController
     end
 
     def self.legacy_api_user
-      user = Models::User.find(:guid => LEGACY_API_USER_GUID)
+      user = Models::User.find_by_guid(LEGACY_API_USER_GUID)
       if user.nil?
         user = Models::User.create(
           :guid => LEGACY_API_USER_GUID,

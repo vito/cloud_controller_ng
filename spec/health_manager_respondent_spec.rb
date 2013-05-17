@@ -34,7 +34,7 @@ module VCAP::CloudController
     let(:app) do
       Models::App.make(
         :instances => 2, :state => 'STARTED', :package_hash => "SOME_HASH", :package_state => "STAGED"
-      ).save
+      )
     end
     let(:payload) do
       {
@@ -55,7 +55,7 @@ module VCAP::CloudController
         it_should_behave_like "common test for all health manager respondents"
 
         it "sends a start request to dea" do
-          app.update(
+          app.update_attributes(
             :state => "STARTED",
             :package_hash => "abc",
             :package_state => "STAGED",
@@ -74,7 +74,7 @@ module VCAP::CloudController
         end
 
         context "when the app isn't started" do
-          let(:app) { Models::App.make(:instances => 2).save }
+          let(:app) { Models::App.make(:instances => 2) }
 
           it "drops the request" do
             dea_client.should_not_receive(:start_instances_with_message)
@@ -103,7 +103,7 @@ module VCAP::CloudController
 
         context "when the app is flapping" do
           it "should send a start request indicating a flapping app" do
-            app.update(
+            app.update_attributes(
               :state => "STARTED",
               :package_hash => "abc",
               :package_state => "STAGED",
@@ -143,11 +143,6 @@ module VCAP::CloudController
           )
 
           process_hm_request
-        end
-
-        it "updates the app model to have fewer instances" do
-          dea_client.stub(:stop_instances)
-          expect { process_hm_request }.to change { app.reload.instances }.by(-1)
         end
 
         context "when the timestamps mismatch" do
@@ -199,10 +194,6 @@ module VCAP::CloudController
             process_hm_request
           end
 
-          it "marks the app as stopped" do
-            expect { process_hm_request }.to change { app.reload.state }.from("STARTED").to("STOPPED")
-          end
-
           it "sends a stop request to the dea" do
             dea_client.should_receive(:stop) do |changed_app|
               reloaded_app = app.reload
@@ -234,7 +225,7 @@ module VCAP::CloudController
         it_should_behave_like "common test for all health manager respondents"
 
         it "should drop the request if app already stopped" do
-          app.update(
+          app.update_attributes(
             :state => "STOPPED",
           )
 
@@ -248,7 +239,7 @@ module VCAP::CloudController
         end
 
         it "should stop an app" do
-          app.update(
+          app.update_attributes(
             :state => "STARTED",
             :package_hash => "abc",
             :package_state => "STAGED",
@@ -258,19 +249,6 @@ module VCAP::CloudController
             respond_with(:guid => app.guid),
           )
           process_hm_request
-        end
-
-        it "should update the state of an app to stopped" do
-          app.update(
-            :state => "STARTED",
-            :package_hash => "abc",
-            :package_state => "STAGED",
-          )
-
-          dea_client.should_receive(:stop)
-          process_hm_request
-
-          app.reload.should be_stopped
         end
       end
     end

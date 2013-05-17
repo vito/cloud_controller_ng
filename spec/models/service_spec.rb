@@ -25,7 +25,7 @@ module VCAP::CloudController
         expect {
           subject
         }.to_not change {
-          Models::ServiceAuthToken.count(:label => service.label, :provider => service.provider)
+          Models::ServiceAuthToken.where(:label => service.label, :provider => service.provider).count
         }
       end
     end

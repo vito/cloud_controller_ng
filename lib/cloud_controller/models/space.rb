@@ -1,33 +1,65 @@
 # Copyright (c) 2009-2012 VMware, Inc.
 
 module VCAP::CloudController::Models
-  class Space < Sequel::Model
+  class SpacesDeveloper < ActiveRecord::Base
+    belongs_to :space
+    belongs_to :user
+  end
+
+  class SpacesManager < ActiveRecord::Base
+    belongs_to :space
+    belongs_to :user
+  end
+
+  class SpacesAuditor < ActiveRecord::Base
+    belongs_to :space
+    belongs_to :user
+  end
+
+  class Space < ActiveRecord::Base
+    include CF::ModelGuid
+    include CF::ModelRelationships
+
     class InvalidDeveloperRelation < InvalidRelation; end
     class InvalidAuditorRelation   < InvalidRelation; end
     class InvalidManagerRelation   < InvalidRelation; end
     class InvalidDomainRelation    < InvalidRelation; end
 
-    define_user_group :developers, :reciprocal => :spaces,
-                      :before_add => :validate_developer
+    has_many :apps, :dependent => :destroy
+    has_many :service_instances, :dependent => :destroy
+    has_many :routes, :dependent => :destroy
+    has_many :app_events, :through => :apps
+    has_and_belongs_to_many :domains, :before_add => :validate_domain
+    belongs_to :organization
 
-    define_user_group :managers, :reciprocal => :managed_spaces,
-                      :before_add => :validate_manager
+    has_many :default_users,
+             :class_name => "VCAP::CloudController::Models::User",
+             :foreign_key => "default_space_id"
 
-    define_user_group :auditors, :reciprocal => :audited_spaces,
-                      :before_add => :validate_auditor
+    has_and_belongs_to_many :developers,
+      :join_table => "spaces_developers",
+      :association_foreign_key => "user_id",
+      :class_name => "VCAP::CloudController::Models::User",
+      :before_add => :validate_developer
+    has_and_belongs_to_many :managers,
+      :join_table => "spaces_managers",
+      :association_foreign_key => "user_id",
+      :class_name => "VCAP::CloudController::Models::User",
+      :before_add => :validate_manager
+    has_and_belongs_to_many :auditors,
+      :join_table => "spaces_auditors",
+      :association_foreign_key => "user_id",
+      :class_name => "VCAP::CloudController::Models::User",
+      :before_add => :validate_auditor
 
-    many_to_one       :organization
-    one_to_many       :apps
-    one_to_many       :service_instances
-    one_to_many       :routes
-    one_to_many       :app_events, :dataset => lambda { VCAP::CloudController::Models::AppEvent.filter(:app => apps) }
-    one_to_many       :default_users, :class => "VCAP::CloudController::Models::User", :key => :default_space_id
-    many_to_many      :domains, :before_add => :validate_domain
+    validates :name, :organization, :presence => true
 
-    add_association_dependencies :domains => :nullify, :default_users => :nullify,
-      :apps => :destroy, :service_instances => :destroy, :routes => :destroy
+    validates :name, :uniqueness => {
+      :scope => :organization_id,
+      :case_sensitive => false
+    }
 
-    default_order_by  :name
+    before_create :add_inheritable_domains
 
     export_attributes :name, :organization_guid
 
@@ -38,17 +70,6 @@ module VCAP::CloudController::Models
 
     def in_organization?(user)
       organization && organization.users.include?(user)
-    end
-
-    def before_create
-      add_inheritable_domains
-      super
-    end
-
-    def validate
-      validates_presence :name
-      validates_presence :organization
-      validates_unique   [:organization_id, :name]
     end
 
     def validate_developer(user)
@@ -76,14 +97,12 @@ module VCAP::CloudController::Models
       return unless organization
 
       organization.domains.each do |d|
-        add_domain_by_guid(d.guid) unless d.owning_organization
+        add_domain(d) unless d.owning_organization
       end
     end
 
-    def self.user_visibility_filter(user)
-      user_visibility_filter_with_admin_override(
-        :organization => user.organizations_dataset
-      )
+    def self.user_visibility_filter(user, set = self)
+      set.where(:organization_id => user.organizations)
     end
   end
 end

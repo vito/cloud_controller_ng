@@ -94,7 +94,7 @@ module VCAP::CloudController
         space.name = "1234"
         space.name.should be_kind_of(String)
         space.save
-        space.refresh
+        space.reload
         space.name.should be_kind_of(String)
       end
     end
@@ -131,6 +131,51 @@ module VCAP::CloudController
         space.add_default_user(user)
         space.save
         expect { subject }.to change { user.reload.default_space }.from(space).to(nil)
+      end
+    end
+
+    describe ".user_visibility_filter" do
+      let(:org_a) { Models::Organization.make }
+      let(:org_b) { Models::Organization.make }
+      let(:org_c) { Models::Organization.make }
+
+      let!(:space_a_1) { Models::Space.make :organization => org_a }
+      let!(:space_a_2) { Models::Space.make :organization => org_a }
+
+      let!(:space_b_1) { Models::Space.make :organization => org_b }
+
+      let!(:space_c_1) { Models::Space.make :organization => org_c }
+
+      before do
+        SecurityContext.stub(:current_user_is_admin? => false)
+      end
+
+      def filtered_result
+        described_class.user_visibility_filter(user)
+      end
+
+      context "when the user is in org a" do
+        let(:user) { Models::User.make :organizations => [org_a] }
+
+        it "is a filter for org a's spaces" do
+          expect(filtered_result).to match_array([space_a_1, space_a_2])
+        end
+      end
+
+      context "when the user is in org a and c"do
+        let(:user) { Models::User.make :organizations => [org_a, org_c] }
+
+        it "is a filter for org a and c's spaces" do
+          expect(filtered_result).to match_array([space_a_1, space_a_2, space_c_1])
+        end
+      end
+
+      context "when the user is in org b" do
+        let(:user) { Models::User.make :organizations => [org_b] }
+
+        it "is a filter for org b's spaces" do
+          expect(filtered_result).to match_array([space_b_1])
+        end
       end
     end
   end

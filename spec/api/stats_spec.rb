@@ -31,7 +31,7 @@ module VCAP::CloudController
           @app.instances = 1
           @app.save
 
-          @app.refresh
+          @app.reload
 
           stats = {
             0 => {
@@ -84,7 +84,7 @@ module VCAP::CloudController
           @app.instances = 1
           @app.save
 
-          @app.refresh
+          @app.reload
 
           stats = {
             0 => {

@@ -5,7 +5,7 @@ require "rubygems"
 require "bundler"
 require "bundler/setup"
 
-require "machinist/sequel"
+require "machinist/active_record"
 require "machinist/object"
 require "rack/test"
 require "timecop"
@@ -61,17 +61,15 @@ module VCAP::CloudController
     end
 
     def db
-      db_connection = "sqlite:///"
-      db_index = ""
+      db = { :adapter => "sqlite3", :database => "/tmp/cloud_controller.db" }
 
       if ENV["DB_CONNECTION"]
-        db_connection = ENV["DB_CONNECTION"]
-        db_index = ENV["TEST_ENV_NUMBER"]
+        db = "#{ENV["DB_CONNECTION"]}#{ENV["TEST_ENV_NUMBER"]}"
       end
 
       @db ||= VCAP::CloudController::DB.connect(
         db_logger,
-        :database => "#{db_connection}#{db_index}",
+        :database => db,
         :log_level => "debug2"
       )
     end
@@ -89,28 +87,28 @@ module VCAP::CloudController
     private
 
     def prepare_database
-      if db.database_type == :postgres
+      if db.adapter_name == "PostgreSQL"
         db.execute("CREATE EXTENSION IF NOT EXISTS citext")
       end
     end
 
     def drop_table_unsafely(table)
-      case db.database_type
-        when :sqlite
-          db.execute("PRAGMA foreign_keys = OFF")
-          db.drop_table(table)
-          db.execute("PRAGMA foreign_keys = ON")
+      case db.adapter_name
+      when /sqlite/i
+        db.execute("PRAGMA foreign_keys = OFF")
+        db.drop_table(table)
+        db.execute("PRAGMA foreign_keys = ON")
 
-        when :mysql
-          db.execute("SET foreign_key_checks = 0")
-          db.drop_table(table)
-          db.execute("SET foreign_key_checks = 1")
+      when /mysql/i
+        db.execute("SET foreign_key_checks = 0")
+        db.drop_table(table)
+        db.execute("SET foreign_key_checks = 1")
 
-        # Postgres uses CASCADE directive in DROP TABLE
-        # to remove foreign key contstraints.
-        # http://www.postgresql.org/docs/9.2/static/sql-droptable.html
-        else
-          db.drop_table(table, :cascade => true)
+      # Postgres uses CASCADE directive in DROP TABLE
+      # to remove foreign key contstraints.
+      # http://www.postgresql.org/docs/9.2/static/sql-droptable.html
+      else
+        db.drop_table(table, :cascade => true)
       end
     end
   end
@@ -125,7 +123,7 @@ module VCAP::CloudController::SpecHelper
 
   def reset_database
     $spec_env.reset_database
-    VCAP::CloudController::Models::QuotaDefinition.populate_from_config(config)
+    VCAP::CloudController::Seeds.create_seed_quota_definitions(config)
   end
 
   # Note that this method is mixed into each example, and so the instance
@@ -206,6 +204,7 @@ module VCAP::CloudController::SpecHelper
 
     VCAP::CloudController::LegacyBulk.configure(config, mbus)
     VCAP::CloudController::Models::QuotaDefinition.configure(config)
+    VCAP::CloudController::Models::ServicePlan.configure(config[:trial_db])
 
     configure_stacks
   end

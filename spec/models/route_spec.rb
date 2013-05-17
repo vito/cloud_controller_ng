@@ -6,7 +6,7 @@ module VCAP::CloudController
   describe VCAP::CloudController::Models::Route do
     it_behaves_like "a CloudController model", {
       :required_attributes  => [:domain, :space, :host],
-      :db_required_attributes => [:domain, :space],
+      :db_required_attributes => [:domain, :space, :host],
       :unique_attributes    => [:host, :domain],
       :create_attribute => lambda { |name|
         @space ||= Models::Space.make
@@ -74,7 +74,7 @@ module VCAP::CloudController
               Models::Route.make(:space => space,
                                  :domain => domain,
                                  :host => nil)
-            }.to raise_error(Sequel::ValidationFailed)
+            }.to raise_error(ActiveRecord::RecordInvalid)
           end
 
           it "should allow an empty host" do
@@ -88,7 +88,7 @@ module VCAP::CloudController
               Models::Route.make(:space => space,
                                  :domain => domain,
                                  :host => " ")
-            }.to raise_error(Sequel::ValidationFailed)
+            }.to raise_error(ActiveRecord::RecordInvalid)
           end
         end
 
@@ -108,7 +108,7 @@ module VCAP::CloudController
               Models::Route.make(:space => space,
                                  :domain => domain,
                                  :host => nil).should be_valid
-            }.to raise_error(Sequel::ValidationFailed)
+            }.to raise_error(ActiveRecord::RecordInvalid)
           end
 
           it "should not allow a valid host" do
@@ -116,7 +116,7 @@ module VCAP::CloudController
               Models::Route.make(:space => space,
                                  :domain => domain,
                                  :host => Sham.host)
-            }.to raise_error(Sequel::ValidationFailed)
+            }.to raise_error(ActiveRecord::RecordInvalid)
           end
 
           it "should allow an empty host" do
@@ -130,7 +130,7 @@ module VCAP::CloudController
               Models::Route.make(:space => space,
                                  :domain => domain,
                                  :host => " ")
-            }.to raise_error(Sequel::ValidationFailed)
+            }.to raise_error(ActiveRecord::RecordInvalid)
           end
         end
       end
@@ -149,7 +149,7 @@ module VCAP::CloudController
       end
 
       describe "#fqdn" do
-        context "for a non-nil host" do
+        context "for a non-empty host" do
           it "should return the fqdn for the route" do
             r = Models::Route.make(
               :host => "www",
@@ -160,7 +160,7 @@ module VCAP::CloudController
           end
         end
 
-        context "for a nil host" do
+        context "for an empty host" do
           it "should return the fqdn for the route" do
             r = Models::Route.make(
               :host => "",
@@ -207,7 +207,7 @@ module VCAP::CloudController
         space_a.add_domain(domain_a)
         expect {
           Models::Route.make(:space => space_a, :domain => domain_b)
-        }.to raise_error Sequel::ValidationFailed, /domain invalid_relation/
+        }.to raise_error ActiveRecord::RecordInvalid, /domain invalid_relation/i
       end
 
       it "should not associate with apps from a different space" do
@@ -221,13 +221,14 @@ module VCAP::CloudController
         }.to raise_error Models::Route::InvalidAppRelation
       end
 
-      it "should not allow creation of a nil host on a system domain" do
+      it "prevents creation of a route with an empty host on a system domain" do
         expect {
           Models::Route.make(
-            :host => nil, :space => space_a,
+            :host => "",
+            :space => space_a,
             :domain => Models::Domain.default_serving_domain
           )
-        }.to raise_error Sequel::ValidationFailed
+        }.to raise_error ActiveRecord::RecordInvalid
       end
     end
 
@@ -245,7 +246,7 @@ module VCAP::CloudController
 
         it "notifies DEAs of route change for running apps" do
           VCAP::CloudController::DeaClient.should_receive(:update_uris).with(app_1)
-          Models::Route[:guid => route.guid].destroy
+          Models::Route.find_by_guid(route.guid).destroy
         end
       end
 
@@ -255,7 +256,7 @@ module VCAP::CloudController
         it "does not notify DEAs of route change for apps that are not started" do
           Models::App.make(:space => route.space, :state => "STOPPED", :route_guids => [route.guid])
           VCAP::CloudController::DeaClient.should_not_receive(:update_uris)
-          Models::Route[:guid => route.guid].destroy
+          Models::Route.find_by_guid(route.guid).destroy
         end
       end
 
@@ -265,7 +266,7 @@ module VCAP::CloudController
         it "does not notify DEAs of route change for apps that are not staged" do
           Models::App.make(:space => route.space, :package_state => "FAILED", :route_guids => [route.guid])
           VCAP::CloudController::DeaClient.should_not_receive(:update_uris)
-          Models::Route[:guid => route.guid].destroy
+          Models::Route.find_by_guid(route.guid).destroy
         end
       end
     end

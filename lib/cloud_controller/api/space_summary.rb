@@ -54,7 +54,7 @@ module VCAP::CloudController
         :guid => app.guid,
         :urls => app.routes.map(&:fqdn),
         :routes => app.routes.map(&:as_summary_json),
-        :service_count => app.service_bindings_dataset.count,
+        :service_count => app.service_bindings.count,
         :running_instances => nil,
       }.merge(app.to_hash)
     end
@@ -63,7 +63,7 @@ module VCAP::CloudController
       {
         :guid => instance.guid,
         :name => instance.name,
-        :bound_app_count => instance.service_bindings_dataset.count,
+        :bound_app_count => instance.service_bindings.count,
         :service_plan => {
           :guid => instance.service_plan.guid,
           :name => instance.service_plan.name,
