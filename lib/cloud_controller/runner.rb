@@ -4,6 +4,7 @@ require "steno"
 require "optparse"
 require "vcap/uaa_util"
 require File.expand_path("../message_bus.rb", __FILE__)
+require File.expand_path("../seeds", __FILE__)
 
 module VCAP::CloudController
   class Runner
@@ -88,16 +89,7 @@ module VCAP::CloudController
 
       config = @config.dup
 
-      if @insert_seed_data
-        VCAP::CloudController::Models::QuotaDefinition.populate_from_config(config)
-        VCAP::CloudController::Models::Stack.populate
-      end
-
-      config[:system_domains].each do |name|
-        VCAP::CloudController::Models::Domain.find_or_create_shared_domain(name)
-      end
-
-      VCAP::CloudController::Models::Domain.default_serving_domain_name = config[:system_domains].first
+      Seeds.write_seed_data(config) if @insert_seed_data
 
       app = create_app(config)
       start_thin_server(app, config)
@@ -149,6 +141,7 @@ module VCAP::CloudController
           VCAP::CloudController::HealthManagerRespondent.new(config)
         VCAP::CloudController.dea_respondent =
           VCAP::CloudController::DeaRespondent.new(config, VCAP::CloudController::MessageBus.instance)
+
         map "/" do
           run VCAP::CloudController::Controller.new(config, token_decoder)
         end

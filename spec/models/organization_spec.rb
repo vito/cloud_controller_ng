@@ -32,15 +32,16 @@ module VCAP::CloudController
       it "allows cf admins to change 'can_access_non_public_plans'" do
         SecurityContext.stub(:current_user_is_admin? => true)
         expect {
-          org.update(:can_access_non_public_plans => true)
-        }.to_not raise_error Sequel::ValidationFailed, /can_access_non_public_plans/
+          org.update_attributes(:can_access_non_public_plans => true)
+        }.to_not raise_error ActiveRecord::RecordInvalid, /can_access_non_public_plans/
       end
 
       it "does not allow non-admins to change 'can_access_non_public_plans'" do
         SecurityContext.stub(:current_user_is_admin? => false)
         expect {
-          org.update(:can_access_non_public_plans => true)
-        }.to raise_error Sequel::ValidationFailed, /can_access_non_public_plans/
+          org.can_access_non_public_plans = true
+          org.save!
+        }.to raise_error ActiveRecord::RecordInvalid, /not_authorized/
       end
     end
 
@@ -117,22 +118,16 @@ module VCAP::CloudController
         end
 
         it "should emit start events for running apps" do
-          ds = Models::AppStartEvent.filter(
-            :organization_guid => org.guid,
-          )
-          # FIXME: don't skip validation
           org.billing_enabled = true
           org.save(:validate => false)
+          ds = Models::AppStartEvent.where(:organization_guid => org.guid)
           ds.count.should == 4
         end
 
         it "should emit create events for provisioned services" do
-          ds = Models::ServiceCreateEvent.filter(
-            :organization_guid => org.guid,
-          )
-          # FIXME: don't skip validation
           org.billing_enabled = true
           org.save(:validate => false)
+          ds = Models::ServiceCreateEvent.where(:organization_guid => org.guid)
           ds.count.should == 4
         end
       end
@@ -170,7 +165,7 @@ module VCAP::CloudController
           Models::ServiceInstance.make(:space => space,
                                        :service_plan => free_plan).
             save(:validate => false)
-          org.refresh
+          org.reload
           org.service_instance_quota_remaining?.should be_false
         end
 
@@ -227,21 +222,25 @@ module VCAP::CloudController
 
       it "destroys all apps" do
         app = Models::App.make(:space => space)
-        expect { subject }.to change { Models::App[:id => app.id] }.from(app).to(nil)
+        expect { subject }.to change {
+          Models::App.exists?(app.id)
+        }.from(true).to(false)
       end
 
       it "destroys all spaces" do
-        expect { subject }.to change { Models::Space[:id => space.id] }.from(space).to(nil)
+        expect { subject }.to change { Models::Space.exists?(space.id) }.from(true).to(false)
       end
 
       it "destroys all service instances" do
         service_instance = Models::ServiceInstance.make(:space => space)
-        expect { subject }.to change { Models::ServiceInstance[:id => service_instance.id] }.from(service_instance).to(nil)
+        expect { subject }.to change {
+          Models::ServiceInstance.exists?(service_instance.id)
+        }.from(true).to(false)
       end
 
       it "destroys the owned domain" do
         domain = Models::Domain.make(:owning_organization => org)
-        expect { subject }.to change { Models::Domain[:id => domain.id] }.from(domain).to(nil)
+        expect { subject }.to change { Models::Domain.exists?(domain.id) }.from(true).to(false)
       end
 
       it "nullify domains" do
@@ -250,6 +249,155 @@ module VCAP::CloudController
         domain.add_organization(org)
         domain.save
         expect { subject }.to change { domain.reload.organizations.count }.by(-1)
+      end
+    end
+
+    describe "#trial_db_allocated?" do
+      let(:org) { Models::Organization.make }
+      let(:space) { Models::Space.make :organization => org }
+      let(:trial_db_guid) { Models::ServicePlan.trial_db_guid }
+
+      subject { org.trial_db_allocated? }
+
+      context "when a trial db instance has not been allocated" do
+        it "returns false" do
+          expect(subject).to eq false
+        end
+      end
+
+      context "when a trial db instance has been allocated" do
+        let(:service_plan) { Models::ServicePlan.make :unique_id => trial_db_guid }
+
+        it "returns true" do
+          Models::ServiceInstance.make(:space => space, :service_plan => service_plan)
+          expect(subject).to eq true
+        end
+      end
+    end
+
+    describe "#service_plan_quota_remaining?" do
+      let(:org) do
+        Models::Organization.make :quota_definition => quota
+      end
+
+      let(:trial_db_guid) { Models::ServicePlan.trial_db_guid }
+
+      let!(:space) do
+        Models::Space.make(:organization => org)
+      end
+
+      subject { org.check_quota?(service_plan) }
+
+      context "when the service plan requested is the trial db" do
+        let(:service_plan) do
+          Models::ServicePlan.where(
+            :unique_id => trial_db_guid).first_or_create
+        end
+
+        context "and the org's quota definition is paid" do
+          context "and the number of total instances does not exceed the quota restriction" do
+            let(:quota) do
+              Models::QuotaDefinition.make(:total_services => 1)
+            end
+
+            it "return an empty hash" do
+              expect(subject).to be_empty
+            end
+          end
+
+          context "and the number of total instances exceeds than the quota restriction" do
+            let(:quota) do
+              Models::QuotaDefinition.make(:total_services => 0)
+            end
+
+            it "returns a :paid_quota_exceeded error on the org" do
+              expect(subject).to eq(:type => :org, :name => :paid_quota_exceeded)
+            end
+          end
+        end
+
+        context "and the org's quota definition is unpaid" do
+          let(:quota) do
+            Models::QuotaDefinition.make(:non_basic_services_allowed => false)
+          end
+
+          it "returns a :paid_services_not_allowed error on the service plan" do
+            expect(subject).to eq(:type => :service_plan, :name => :paid_services_not_allowed)
+          end
+        end
+
+        context "and the org's quota definition is trial" do
+          let(:quota) do
+            Models::QuotaDefinition.where(
+              :non_basic_services_allowed => false,
+              :trial_db_allowed => true).first
+          end
+
+          it "returns no error if the org has not allocated a trial db" do
+            expect(subject).to be_empty
+          end
+
+          it "returns a :trial_quota_exceeded error if the org has allocated a trial db" do
+            Models::Organization.any_instance.stub(:trial_db_allocated?).and_return(true)
+            expect(subject).to eq(:type => :org, :name => :trial_quota_exceeded)
+          end
+        end
+      end
+
+      context "when the service plan requested is not trial db" do
+        context "and the service plan is free" do
+          let(:service_plan) { Models::ServicePlan.make :free => true }
+
+          context "and the number of total instances is less than the quota restriction" do
+            let(:quota) { Models::QuotaDefinition.make :total_services => 1 }
+            it "returns no error" do
+              expect(subject).to be_empty
+            end
+          end
+
+          context "and the number of total instances is greater than the quota restriction" do
+            let(:quota) do
+              Models::QuotaDefinition.make(:total_services => 0, :non_basic_services_allowed => false)
+            end
+
+            it "returns :free_quota_exceeded for the org" do
+              expect(subject).to eq({ :type => :org, :name => :free_quota_exceeded })
+            end
+          end
+        end
+
+        context "and the quota is paid" do
+          let(:service_plan) { Models::ServicePlan.make }
+          context "and the number of total instances is less than the quota restriction" do
+            let(:quota) do
+              Models::QuotaDefinition.make(:total_services => 1, :non_basic_services_allowed => true)
+            end
+
+            it "returns no error" do
+              expect(subject).to be_empty
+            end
+          end
+
+          context "and the number of total instances is greater than the quota restriction" do
+            let(:quota) do
+              Models::QuotaDefinition.make(:total_services => 0, :non_basic_services_allowed => true)
+            end
+
+            it "returns :paid_quota_exceeded error for the org" do
+              expect(subject).to eq({ :type => :org, :name => :paid_quota_exceeded })
+            end
+          end
+        end
+
+        context "and the quota is unpaid and the service plan is not free" do
+          let(:quota) do
+            Models::QuotaDefinition.make(:total_services => 1, :non_basic_services_allowed => false)
+          end
+          let(:service_plan) { Models::ServicePlan.make :free => false }
+          it "returns a :paid_services_not_allowed error for the service plan" do
+            expect(subject).to eq({ :type => :service_plan, :name => :paid_services_not_allowed })
+          end
+        end
       end
     end
   end

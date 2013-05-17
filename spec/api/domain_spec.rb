@@ -18,7 +18,7 @@ module VCAP::CloudController
       },
       one_to_many_collection_ids_without_url: {
         :routes => lambda { |domain|
-          domain.update(:wildcard => true)
+          domain.update_attributes(:wildcard => true)
           space = Models::Space.make(:organization => domain.owning_organization)
           space.add_domain(domain)
           Models::Route.make(
@@ -37,7 +37,7 @@ module VCAP::CloudController
       },
       one_to_many_collection_ids_without_url: {
         :routes => lambda { |domain|
-          domain.update(wildcard: true)
+          domain.update_attributes(wildcard: true)
           space = Models::Space.make(organization: domain.owning_organization)
           space.add_domain(domain)
           Models::Route.make(host: Sham.host, domain: domain, space: space)

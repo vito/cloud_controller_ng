@@ -21,11 +21,11 @@ module VCAP::CloudController
     query_parameters :name, :owning_organization_guid, :space_guid
 
     def self.translate_validation_exception(e, attributes)
-      name_errors = e.errors.on(:name)
-      if name_errors && name_errors.include?(:unique)
+      name_errors = e.record.errors[:name]
+      if name_errors && name_errors.include?(:taken)
         Errors::DomainNameTaken.new(attributes["name"])
       else
-        Errors::DomainInvalid.new(e.errors.full_messages)
+        Errors::DomainInvalid.new(e.record.errors.full_messages)
       end
     end
   end

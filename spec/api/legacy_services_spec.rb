@@ -115,7 +115,7 @@ module VCAP::CloudController
           end
 
           it "should add the servicew the default app space" do
-            svc = user.default_space.service_instances.find(:name => "instance_name")
+            svc = user.default_space.service_instances.find_by_name("instance_name")
             svc.should_not be_nil
             Models::ServiceInstance.count.should == @num_instances_before + 1
           end

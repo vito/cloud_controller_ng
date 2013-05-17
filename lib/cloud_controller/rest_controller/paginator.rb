@@ -1,5 +1,8 @@
 # Copyright (c) 2009-2012 VMware, Inc.
 
+require "will_paginate"
+require "will_paginate/active_record"
+
 module VCAP::CloudController::RestController
 
   # Paginates a dataset
@@ -55,11 +58,11 @@ module VCAP::CloudController::RestController
     # @option opts [Integer] :max_inline Maximum number of objects to
     # expand inline in a relationship.
     def initialize(controller, ds, path, opts)
-      page       = opts[:page] || 1
-      page_size  = opts[:results_per_page] || 50
-      criteria = opts[:order_by] || :id
+      page      = opts[:page] || 1
+      page_size = opts[:results_per_page] || 50
+      criteria  = opts[:order_by] || :id
 
-      @paginated = ds.order_by(criteria).paginate(page, page_size)
+      @paginated = ds.paginate(:page => page, :per_page => page_size).order(criteria)
       @serialization = opts[:serialization] || ObjectSerialization
 
       @controller = controller
@@ -72,8 +75,8 @@ module VCAP::CloudController::RestController
     # @return [String] Json encoding pagination of the dataset.
     def render_json
       res = {
-        :total_results => @paginated.pagination_record_count,
-        :total_pages   => @paginated.page_count,
+        :total_results => @paginated.total_entries,
+        :total_pages   => @paginated.total_pages,
         :prev_url      => prev_page_url,
         :next_url      => next_page_url,
         :resources     => resources,
@@ -91,7 +94,7 @@ module VCAP::CloudController::RestController
     end
 
     def prev_page_url
-      @paginated.prev_page ? url(@paginated.prev_page) : nil
+      @paginated.previous_page ? url(@paginated.previous_page) : nil
     end
 
     def next_page_url
@@ -104,7 +107,7 @@ module VCAP::CloudController::RestController
         res += "inline-relations-depth=#{@opts[:inline_relations_depth]}&"
       end
       res += "q=#{@opts[:q]}&" if @opts[:q]
-      res += "page=#{page}&results-per-page=#{@paginated.page_size}"
+      res += "page=#{page}&results-per-page=#{@paginated.per_page}"
     end
   end
 end

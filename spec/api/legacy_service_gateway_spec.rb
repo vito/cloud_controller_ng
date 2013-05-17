@@ -87,7 +87,7 @@ module VCAP::CloudController
         it "should create service offerings for label/provider services and generate a unique_id" do
           post path, build_offering.encode, auth_header
           last_response.status.should == 200
-          svc = Models::Service.find(:label => "foobar", :provider => "core")
+          svc = Models::Service.where(:label => "foobar", :provider => "core").first
           svc.should_not be_nil
           svc.version.should == "2.0"
           svc.unique_id.should == "core_foobar"
@@ -100,7 +100,7 @@ module VCAP::CloudController
           post path, o.encode, auth_header
 
           last_response.status.should == 200
-          service = Models::Service[:label => "foobar", :provider => "core"]
+          service = Models::Service.where(:label => "foobar", :provider => "core").first
           service.extra.should == extra_data
         end
 
@@ -108,7 +108,7 @@ module VCAP::CloudController
           it "should create service plans" do
             post path, both_plans.encode, auth_header
 
-            service = Models::Service[:label => "foobar", :provider => "core"]
+            service = Models::Service.where(:label => "foobar", :provider => "core").first
             service.service_plans.map(&:name).should include("free", "nonfree")
           end
 
@@ -116,7 +116,7 @@ module VCAP::CloudController
             post path, just_free_plan.encode, auth_header
             post path, both_plans.encode, auth_header
 
-            service = Models::Service[:label => "foobar", :provider => "core"]
+            service = Models::Service.where(:label => "foobar", :provider => "core").first
             service.service_plans.map(&:name).should include("free", "nonfree")
           end
 
@@ -124,7 +124,7 @@ module VCAP::CloudController
             post path, both_plans.encode, auth_header
             post path, just_free_plan.encode, auth_header
 
-            service = Models::Service[:label => "foobar", :provider => "core"]
+            service = Models::Service.where(:label => "foobar", :provider => "core").first
             service.service_plans.map(&:name).should == ["free"]
           end
         end
@@ -163,7 +163,7 @@ module VCAP::CloudController
             post path, offer.encode, auth_header
             last_response.status.should == 200
 
-            service = Models::Service[:label => "foobar", :provider => "core"]
+            service = Models::Service.where(:label => "foobar", :provider => "core").first
             service.service_plans.should have(1).entries
             service.service_plans.first.description.should == "free plan"
             service.service_plans.first.name.should == "freeplan"
@@ -179,7 +179,7 @@ module VCAP::CloudController
             post path, offer2.encode, auth_header
             last_response.status.should == 200
 
-            service = Models::Service[:label => "foobar", :provider => "core"]
+            service = Models::Service.where(:label => "foobar", :provider => "core").first
             service.should have(1).service_plans
             service.service_plans.first.description.should == "tetris"
             service.service_plans.first.free.should == false
@@ -192,7 +192,7 @@ module VCAP::CloudController
             post path, offer.encode, auth_header
             last_response.status.should == 200
 
-            service = Models::Service[:label => "foobar", :provider => "core"]
+            service = Models::Service.where(:label => "foobar", :provider => "core").first
             service.should have(1).service_plans
             service.service_plans.first.guid.should_not == "myguid"
           end
@@ -225,7 +225,7 @@ module VCAP::CloudController
           offer.url = "http://newurl.com"
           post path, offer.encode, auth_header
           last_response.status.should == 200
-          svc = Models::Service.find(:label => "foobar", :provider => "core")
+          svc = Models::Service.where(:label => "foobar", :provider => "core").first
           svc.should_not be_nil
           svc.url.should == "http://newurl.com"
         end
@@ -519,7 +519,7 @@ module VCAP::CloudController
           delete "/services/v1/offerings/foobar-version", {}, auth_header
           last_response.status.should == 200
 
-          svc = Models::Service[:label => "foobar", :provider => "core"]
+          svc = Models::Service.where(:label => "foobar", :provider => "core").first
           svc.should be_nil
         end
 
@@ -527,7 +527,7 @@ module VCAP::CloudController
           delete "/services/v1/offerings/foobar-version/test", {}, {"HTTP_X_VCAP_SERVICE_TOKEN" => service_plan_test.service.service_auth_token.token}
           last_response.status.should == 200
 
-          svc = Models::Service[:label => "foobar", :provider => "test"]
+          svc = Models::Service.where(:label => "foobar", :provider => "test").first
           svc.should be_nil
         end
       end

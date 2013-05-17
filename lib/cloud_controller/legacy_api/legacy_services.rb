@@ -23,16 +23,17 @@ module VCAP::CloudController
 
       logger.debug("legacy service create #{legacy_attrs}")
 
-      svc = Models::Service.find({:label => legacy_attrs["vendor"],
-                                  :version => legacy_attrs["version"]})
+      svc = Models::Service.where(:label => legacy_attrs["vendor"],
+                                  :version => legacy_attrs["version"]).first
       unless svc
         msg = "#{legacy_attrs["vendor"]}-#{legacy_attrs["version"]}"
         raise ServiceInvalid.new(msg)
       end
 
-      plans = svc.service_plans_dataset.filter(:name => LEGACY_PLAN_OVERIDE)
+      plans = svc.service_plans.where(:name => LEGACY_PLAN_OVERIDE).all
       raise ServicePlanInvalid.new(LEGACY_PLAN_OVERIDE) if plans.count == 0
       logger.warn("legacy create matched > 1 plan") unless plans.count == 1
+
       plan = plans.first
 
       attrs = {
@@ -60,7 +61,7 @@ module VCAP::CloudController
 
     def enumerate_offerings
       resp = {}
-      Models::Service.each do |svc|
+      Models::Service.all.each do |svc|
         svc_type = LegacyService.synthesize_service_type(svc)
         resp[svc_type] ||= {}
         resp[svc_type][svc.label] ||= {}
@@ -96,9 +97,11 @@ module VCAP::CloudController
     end
 
     def service_instance_from_name(name)
-      svc = Models::ServiceInstance.user_visible[:name => name,
-                                                 :space => default_space]
+      svc = Models::ServiceInstance.user_visible.where(
+        :name => name, :space_id => default_space).first
+
       raise ServiceInstanceNotFound.new(name) unless svc
+
       svc
     end
 

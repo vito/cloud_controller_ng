@@ -33,7 +33,7 @@ module VCAP::CloudController
         it "updates package hash" do
           expect {
             make_request
-          }.to change { app_obj.refresh.package_hash }.from(nil)
+          }.to change { app_obj.reload.package_hash }.from(nil)
         end
       end
 
@@ -46,13 +46,13 @@ module VCAP::CloudController
         it "does not update package hash" do
           expect {
             make_request
-          }.to_not change { app_obj.refresh.package_hash }.from(nil)
+          }.to_not change { app_obj.reload.package_hash }.from(nil)
         end
 
         it "changes the app package_state to FAILED" do
           expect {
             make_request
-          }.to change { app_obj.refresh.package_state }.from("PENDING").to("FAILED")
+          }.to change { app_obj.reload.package_state }.from("PENDING").to("FAILED")
         end
       end
 

@@ -13,13 +13,10 @@ module VCAP::CloudController::Models
       :service_instance_name,
     )
 
-    def validate
-      super
-      validates_presence :space_guid
-      validates_presence :space_name
-      validates_presence :service_instance_guid
-      validates_presence :service_instance_name
-    end
+    validates :space_guid, :presence => true
+    validates :space_name, :presence => true
+    validates :service_instance_guid, :presence => true
+    validates :service_instance_name, :presence => true
 
     def event_type
       "service_delete"

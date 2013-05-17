@@ -58,7 +58,8 @@ module VCAP::CloudController
         return
       end
 
-      app = Models::App[:guid => app_id]
+      app = Models::App.find_by_guid(app_id)
+
       return unless app
       return unless app.started?
       return unless version == app.version
@@ -82,13 +83,12 @@ module VCAP::CloudController
         return
       end
 
-      app = Models::App[:guid => app_id]
+      app = Models::App.find_by_guid(app_id)
 
       return if stop_runway_app(app, app_id)
       return if last_updated != app.updated_at.to_i
       return if hm_sent_wrong_command(app, indices)
 
-      app.update(:instances => app.instances - indices.size)
       dea_client.stop_instances(app, indices)
     end
 
@@ -101,7 +101,7 @@ module VCAP::CloudController
         return
       end
 
-      app = Models::App[:guid => app_id]
+      app = Models::App.find_by_guid(app_id)
 
       return if stop_runway_app(app, app_id)
 
@@ -109,7 +109,7 @@ module VCAP::CloudController
     end
 
     def stop_app(app)
-      dea_client.stop(app) if app.update(:state => "STOPPED")
+      dea_client.stop(app) unless app.stopped?
     end
 
     def stop_runway_app(app, app_id)
@@ -120,11 +120,11 @@ module VCAP::CloudController
     end
 
     def hm_sent_wrong_command(app, indices)
-      instances_delta = app.instances - indices.size
-      if instances_delta <= 0
+      instances_remaining = app.instances - indices.size
+      if instances_remaining <= 0
         stop_app(app)
         logger.error(
-          instances_delta == 0 ?
+          instances_remaining == 0 ?
             "HM scales down to 0 -- should have sent a SPINDOWN request" :
             "HM scaling down to negative number of instances"
         )

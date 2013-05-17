@@ -1,11 +1,14 @@
 source 'https://rubygems.org'
 
 gem "rake"
+gem "activerecord", "~> 3.2.13"
+gem "activesupport", "~> 3.2.13"
+gem "addressable"
+gem "will_paginate"
 gem "bcrypt-ruby"
 gem "eventmachine", "~> 1.0.0"
 gem "fog"
 gem "rfc822"
-gem "sequel"
 gem "sinatra"
 gem "sinatra-contrib"
 gem "yajl-ruby"

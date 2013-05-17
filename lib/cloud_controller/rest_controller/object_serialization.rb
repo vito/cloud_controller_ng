@@ -47,8 +47,6 @@ module VCAP::CloudController::RestController
     #
     # @param [Sequel::Model] obj Object to encode.
     #
-    # @param [Sequel::Model] obj Object to encode.
-    #
     # @option opts [Integer] :inline_relations_depth Depth to recursively
     # exapend relationships in addition to providing the URLs.
     #
@@ -69,11 +67,15 @@ module VCAP::CloudController::RestController
       metadata_hash = {
         "guid"  => id,
         "url" => controller.url_for_id(id),
-        "created_at" => obj.created_at,
-        "updated_at" => obj.updated_at
+        "created_at" => obj.created_at.to_s(timestamp_format),
+        "updated_at" => obj.updated_at.to_s(timestamp_format)
       }
 
       { "metadata" => metadata_hash, "entity" => entity_hash }
+    end
+
+    def self.timestamp_format
+      "%Y-%m-%d %H:%M:%S %z"
     end
 
     def self.relations_hash(controller, obj, opts, depth, parents)
@@ -83,14 +85,14 @@ module VCAP::CloudController::RestController
 
       parents.push(controller)
 
-      (controller.to_many_relationships || {}).each do |name, attr|
-        ar = controller.model.association_reflection(name)
-        other_model = ar.associated_class
+      (controller.to_many_relationships || []).each do |name, _|
+        other_model = controller.model.reflections[name].klass
         other_controller = VCAP::CloudController.controller_from_model_name(other_model.name)
         res["#{name}_url"] = "#{controller.url_for_id(obj.guid)}/#{name}"
 
         if depth < target_depth && !parents.include?(other_controller)
-          others = obj.user_visible_relationship_dataset(name)
+          others = obj.user_visible_relationship_dataset(name) # XXX
+
           if others.count <= max_inline
             res[name.to_s] = others.map do |other|
               other_controller = VCAP::CloudController.controller_from_model(other)
@@ -100,11 +102,12 @@ module VCAP::CloudController::RestController
         end
       end
 
-      (controller.to_one_relationships || {}).each do |name, attr|
-        ar = controller.model.association_reflection(name)
-        other_model = ar.associated_class
+      (controller.to_one_relationships || []).each do |name, _|
+        other_model = controller.model.reflections[name].klass
         other_controller = VCAP::CloudController.controller_from_model_name(other_model.name)
-        other = obj.send(name)
+
+        other = obj.send(name) # XXX
+
         res["#{name}_url"] = other_controller.url_for_id(other.guid) if other
         if other && depth < target_depth && !parents.include?(other_controller)
           other_controller = VCAP::CloudController.controller_from_model(other)
@@ -113,9 +116,9 @@ module VCAP::CloudController::RestController
       end
 
       parents.pop
+
       res
     end
-
   end
 
   module EntityOnlyObjectSerialization

@@ -1,71 +1,74 @@
 # Copyright (c) 2009-2012 VMware, Inc.
 
+require "active_record"
+
+ActiveModel::Errors.class_eval do
+  # disable I18n
+  def normalize_message(attribute, message, options)
+    message
+  end
+end
+
 module VCAP::CloudController::Models; end
 
-require "sequel_plugins/vcap_validations"
+require "cloud_controller/active_record/guid"
+require "cloud_controller/active_record/relationships"
+
+#require "sequel_plugins/vcap_validations"
 require "sequel_plugins/vcap_serialization"
 require "sequel_plugins/vcap_normalization"
-require "sequel_plugins/vcap_relations"
-require "sequel_plugins/vcap_guid"
-require "sequel_plugins/update_or_create"
+#require "sequel_plugins/vcap_relations"
+#require "sequel_plugins/update_or_create"
 
-module Sequel::Plugins::VcapUserGroup
+module VCAP::ModelUserGroups
   module ClassMethods
     def define_user_group(name, opts = {})
       opts = opts.merge(
         :class => "VCAP::CloudController::Models::User",
-        :join_table => "#{table_name}_#{name}",
-        :right_key => :user_id
+        :foreign_key => "user_id"
       )
 
-      many_to_many(name, opts)
-      add_association_dependencies name => :nullify
+      has_many name, :through => :"#{table_name}_#{name}"
     end
+  end
+
+  ActiveRecord::Base.class_eval do
+    extend(ClassMethods)
   end
 end
 
-module Sequel::Plugins::VcapUserVisibility
+module VCAP::ModelVisibility
   module InstanceMethods
     def user_visible_relationship_dataset(name)
-      associated_model = self.class.association_reflection(name).associated_class
-      relationship_dataset(name).filter(associated_model.user_visibility)
+      associated_model = self.class.reflections[name].klass
+      associated_model.user_visible(send(name))
     end
   end
 
   module ClassMethods
-    def user_visible
-      dataset.filter(user_visibility)
+    def eager_load_associations
+      []
     end
 
-    def user_visibility
-      if (user = VCAP::CloudController::SecurityContext.current_user)
-        user_visibility_filter(user)
-      else
-        user_visibility_filter_with_admin_override(empty_dataset_filter)
-      end
-    end
-
-    # this is overridden by models
-    def user_visibility_filter(user)
-      # TODO: replace with empty_dataset_filter once all perms are in place
-      user_visibility_filter_with_admin_override(full_dataset_filter)
-    end
-
-    def user_visibility_filter_with_admin_override(filt)
+    def user_visible(set = self)
       if VCAP::CloudController::SecurityContext.current_user_is_admin?
-        full_dataset_filter
+        set.scoped
+      elsif user = VCAP::CloudController::SecurityContext.current_user
+        user_visibility_filter(user, set)
       else
-        filt
-      end
+        set.where(:id => nil)
+      end.includes(set.eager_load_associations)
     end
 
-    def full_dataset_filter
-      ~{:id => nil}
+    # overridden by models
+    def user_visibility_filter(user, set = self)
+      set.scoped
     end
+  end
 
-    def empty_dataset_filter
-      {:id => nil}
-    end
+  ActiveRecord::Base.class_eval do
+    extend(ClassMethods)
+    include(InstanceMethods)
   end
 end
 
@@ -73,17 +76,17 @@ module VCAP::CloudController::Models
   class InvalidRelation < StandardError; end
 end
 
-Sequel::Model.plugin :vcap_validations
-Sequel::Model.plugin :vcap_serialization
-Sequel::Model.plugin :vcap_normalization
-Sequel::Model.plugin :vcap_relations
-Sequel::Model.plugin :vcap_guid
-Sequel::Model.plugin :vcap_user_group
-Sequel::Model.plugin :vcap_user_visibility
-Sequel::Model.plugin :update_or_create
+#Sequel::Model.plugin :vcap_validations
+#Sequel::Model.plugin :vcap_serialization
+#Sequel::Model.plugin :vcap_normalization
+#Sequel::Model.plugin :vcap_relations
+#Sequel::Model.plugin :vcap_guid
+#Sequel::Model.plugin :vcap_user_group
+#Sequel::Model.plugin :vcap_user_visibility
+#Sequel::Model.plugin :update_or_create
 
-Sequel::Model.plugin :typecast_on_load,
-                     :name, :label, :provider, :description, :host
+#Sequel::Model.plugin :typecast_on_load,
+                     #:name, :label, :provider, :description, :host
 
 require "cloud_controller/models/billing_event"
 require "cloud_controller/models/organization_start_event"

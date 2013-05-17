@@ -19,8 +19,7 @@ end
 
 def make_user_for_org(org)
   user = VCAP::CloudController::Models::User.make
-  user.add_organization org
-  org.refresh
+  user.add_organization(org)
   user
 end
 
@@ -34,7 +33,7 @@ end
 
 def make_developer_for_space(space)
   user = make_user_for_org space.organization
-  space.add_developer user
+  space.add_developer(user)
   user
 end
 

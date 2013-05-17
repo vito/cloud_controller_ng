@@ -1,50 +1,58 @@
 # Copyright (c) 2009-2012 VMware, Inc.
 
 module VCAP::CloudController::Models
-  class Domain < Sequel::Model
-    class InvalidSpaceRelation < InvalidRelation; end
-    class InvalidOrganizationRelation < InvalidRelation; end
+  class Domain < ActiveRecord::Base
+    include CF::ModelGuid
+    include CF::ModelRelationships
+
+    class InvalidSpaceRelation < VCAP::Errors::InvalidRelation; end
+    class InvalidOrganizationRelation < VCAP::Errors::InvalidRelation; end
 
     DOMAIN_REGEX = /^[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,5}$/ix.freeze
 
-    many_to_one       :owning_organization, :class => "VCAP::CloudController::Models::Organization"
-    many_to_many      :organizations, :before_add => :validate_organization
-    many_to_many      :spaces, :before_add => :validate_space
-    one_to_many       :routes
-
-    add_association_dependencies :organizations => :nullify, :spaces => :nullify,
-      :routes => :destroy
+    belongs_to :owning_organization,
+      :class_name => "VCAP::CloudController::Models::Organization"
+    has_and_belongs_to_many :organizations, :before_add => :validate_organization
+    has_and_belongs_to_many :spaces, :before_add => :validate_space
+    has_many :routes, :dependent => :destroy
 
     default_order_by  :name
+
+    after_create :add_owning_organization
+
+    validates :name, :presence => true
+    validates :name, :uniqueness => { :case_sensitive => false }
+
+    validate :i_dunno_man
+
+    validates :name, :format => DOMAIN_REGEX
 
     export_attributes :name, :owning_organization_guid, :wildcard
     import_attributes :name, :owning_organization_guid, :wildcard,
                       :space_guids
     strip_attributes  :name
 
-    subset(:shared_domains) { {:owning_organization_id => nil} }
+    scope :shared_domains, where(:owning_organization_id => nil)
 
-    def after_create
-      add_organization owning_organization if owning_organization
-      super
+    def add_owning_organization
+      add_organization(owning_organization) if owning_organization
     end
 
-    def validate
-      validates_presence :name
-      validates_unique   :name
-      validates_presence :wildcard
-
-      if !new? && column_changed?(:wildcard) && !wildcard && routes_dataset.filter(~{:host => ""}).count > 0
+    # TODO AR
+    def i_dunno_man
+      if !new_record? && wildcard_changed? && !wildcard && \
+          routes.any? { |r| r.host.present? }
         errors.add(:wildcard, :wildcard_routes_in_use)
       end
 
-      if new? || column_changed?(:owning_organization)
+      if new_record? || owning_organization_id_changed?
         unless VCAP::CloudController::SecurityContext.current_user_is_admin?
-          validates_presence :owning_organization
+          unless owning_organization.present?
+            errors.add(:owning_organization, :presence)
+          end
         end
       end
 
-      validates_format DOMAIN_REGEX, :name
       errors.add(:name, :overlapping_domain) if overlaps_domain_in_other_org?
     end
 
@@ -69,13 +77,14 @@ module VCAP::CloudController::Models
     def overlaps_domain_in_other_org?
       domains_to_check = intermediate_domains
       return unless domains_to_check
-      overlapping_domains = Domain.dataset.filter(
+      overlapping_domains = Domain.where(
         :name => domains_to_check
-      ).exclude(:id => id)
+      ).where(Domain.arel_table[:id].not_eq(id))
 
       if owning_organization
-        overlapping_domains = overlapping_domains.exclude(
-          :owning_organization => owning_organization
+        overlapping_domains = overlapping_domains.where(
+          Domain.arel_table[:owning_organization_id].not_eq(
+            owning_organization.id)
         )
       end
 
@@ -102,23 +111,26 @@ module VCAP::CloudController::Models
       end
     end
 
-    def self.user_visibility_filter(user)
-      orgs = Organization.filter({
-        :managers => [user],
-        :auditors => [user]
-      }.sql_or)
+    def self.user_visibility_filter(user, set = self)
+      orgs = Organization.joins(:managers, :auditors).where("
+          organizations_managers.user_id = :user OR
+            organizations_auditors.user_id = :user
+        ", :user => user.id).all
 
-      spaces = Space.filter({
-        :developers => [user],
-        :managers => [user],
-        :auditors => [user]
-      }.sql_or)
+      spaces = Space.joins(:developers, :managers, :auditors).where("
+          spaces_developers.user_id = :user OR
+            spaces_managers.user_id = :user OR
+            spaces_auditors.user_id = :user
+        ", :user => user.id).all
 
-      user_visibility_filter_with_admin_override({
-        :owning_organization => orgs,
-        :owning_organization_id => nil,
-        :spaces => spaces
-      }.sql_or)
+      spaces_domains =
+        joins(:spaces).where(:domains_spaces => { :space_id => spaces })
+
+      set.where("
+        domains.owning_organization_id IS NULL OR
+          domains.owning_organization_id IN (:organizations) OR
+          domains.id IN (:spaces_domains)
+        ", :spaces_domains => spaces_domains, :organizations => orgs)
     end
 
     def self.default_serving_domain
@@ -127,10 +139,10 @@ module VCAP::CloudController::Models
 
     def self.default_serving_domain_name=(name)
       @default_serving_domain_name = name
-      unless name
-        @default_serving_domain = nil
-      else
+      if name
         @default_serving_domain = find_or_create_shared_domain(name)
+      else
+        @default_serving_domain = nil
       end
       name
     end
@@ -143,8 +155,8 @@ module VCAP::CloudController::Models
       logger = Steno.logger("cc.db.domain")
       d = nil
 
-      Domain.db.transaction do
-        d = Domain[:name => name]
+      Domain.transaction do
+        d = Domain.find_by_name(name)
         if d
           logger.info "reusing default serving domain: #{name}"
         else
@@ -154,7 +166,21 @@ module VCAP::CloudController::Models
         end
       end
 
-      return d
+      d
+    end
+
+    def self.populate_from_config(config, organization)
+      config[:app_domains].each do |domain|
+        find_or_create_shared_domain(domain)
+      end
+
+      unless config[:app_domains].include?(config[:system_domain])
+        where(
+          :name => config[:system_domain],
+          :wildcard => true,
+          :owning_organization_id => organization
+        ).first_or_create
+      end
     end
   end
 end

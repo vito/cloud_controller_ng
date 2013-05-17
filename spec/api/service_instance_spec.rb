@@ -146,7 +146,7 @@ module VCAP::CloudController
           it "allows user with privileged organization to create a service instance" do
             organization = developer.organizations.first
             act_as_cf_admin do
-              organization.update(:can_access_non_public_plans => true)
+              organization.update_attributes(:can_access_non_public_plans => true)
             end
             post('v2/service_instances', payload, headers_for(developer))
             last_response.status.should == 201
@@ -166,6 +166,17 @@ module VCAP::CloudController
             :modify => :not_allowed,
             :delete => :not_allowed
         end
+      end
+    end
+
+    describe "getting a service instance" do
+      let(:space) { Models::Space.make }
+      let(:developer) { make_developer_for_space(space)}
+      it "shows the dashboard_url if there is" do
+        service_instance = Models::ServiceInstance.make
+        service_instance.update_attributes(dashboard_url: 'http://dashboard.io')
+        get "v2/service_instances/#{service_instance.guid}", {}, admin_headers
+        decoded_response.fetch('entity').fetch('dashboard_url').should == 'http://dashboard.io'
       end
     end
 
@@ -241,7 +252,7 @@ module VCAP::CloudController
           post("/v2/service_instances",
                Yajl::Encoder.encode(body),
                headers_for(make_developer_for_space(space)))
-          decoded_response["description"].should =~ /invalid.*space.*/
+          decoded_response["description"].should =~ /space.*blank/i
           last_response.status.should == 400
         end
       end

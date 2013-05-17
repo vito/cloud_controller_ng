@@ -19,14 +19,15 @@ module VCAP::CloudController::Permissions
     end
 
     def self.any_related_space_contains_user?(obj, user, relation)
-      if !obj.new? && obj.respond_to?(:spaces)
-        obj.spaces_dataset.filter(relation => [user]).count >= 1
+      if !obj.new_record? && obj.respond_to?(:spaces)
+        # TODO AR: this may be less efficient than before
+        obj.spaces.any? { |s| s.send(relation).exists?(user.id) }
       end
     end
 
     def self.related_space_contains_user?(obj, user, relation)
-      if !obj.new? && obj.respond_to?(:space)
-        obj.space.send("#{relation}_dataset")[user.id] != nil
+      if !obj.new_record? && obj.respond_to?(:space)
+        obj.space.send(relation).exists?(user.id)
       end
     end
   end

@@ -59,23 +59,23 @@ module VCAP::CloudController::ApiSpecHelper
       it "should return #{expected} #{name.pluralize} to a user that has #{perm_name} permissions" do
         get path, {}, headers_a
         last_response.should be_ok
-        decoded_response["total_results"].should == expected
         guids = decoded_response["resources"].map { |o| o["metadata"]["guid"] }
         if respond_to?(:enumeration_expectation_a)
           guids.sort.should == enumeration_expectation_a.map(&:guid).sort
         else
           guids.should include(@obj_a.guid) if expected > 0
         end
+        decoded_response["total_results"].should == expected
 
         get path, {}, headers_b
         last_response.should be_ok
-        decoded_response["total_results"].should == expected
         guids = decoded_response["resources"].map { |o| o["metadata"]["guid"] }
         if respond_to?(:enumeration_expectation_b)
           expect(guids.sort).to eq enumeration_expectation_b.map(&:guid).sort
         else
           guids.should include(@obj_b.guid) if expected > 0
         end
+        decoded_response["total_results"].should == expected
       end
 
       unless perms_overlap

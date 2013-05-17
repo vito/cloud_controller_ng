@@ -1,26 +1,57 @@
 # Copyright (c) 2009-2012 VMware, Inc.
 
 module VCAP::CloudController::Models
-  class Organization < Sequel::Model
+  class OrganizationManager < ActiveRecord::Base
+    belongs_to :organization
+    belongs_to :user
+  end
+
+  class OrganizationBillingManager < ActiveRecord::Base
+    belongs_to :organization
+    belongs_to :user
+  end
+
+  class OrganizationAuditor < ActiveRecord::Base
+    belongs_to :organization
+    belongs_to :user
+  end
+
+  class Organization < ActiveRecord::Base
+    include CF::ModelGuid
+    include CF::ModelRelationships
+
     class InvalidDomainRelation < InvalidRelation; end
 
-    one_to_many       :spaces
-    one_to_many       :service_instances, :dataset => lambda { VCAP::CloudController::Models::ServiceInstance.filter(:space => spaces) }
-    one_to_many       :apps, :dataset => lambda { VCAP::CloudController::Models::App.filter(:space => spaces) }
-    one_to_many       :app_events, :dataset => lambda { VCAP::CloudController::Models::AppEvent.filter(:app => apps) }
-    one_to_many       :owned_domain, :class => "VCAP::CloudController::Models::Domain", :key => :owning_organization_id
-    many_to_many      :domains, :before_add => :validate_domain
-    many_to_one       :quota_definition
+    has_many :spaces, :dependent => :destroy
+    has_many :service_instances, :through => :spaces
+    has_many :apps, :through => :spaces
+    has_many :app_events, :through => :apps
+    has_many :owned_domains,
+             :class_name => "VCAP::CloudController::Models::Domain",
+             :foreign_key => "owning_organization_id",
+             :dependent => :destroy
+    has_and_belongs_to_many :domains, :before_add => :validate_domain
+    belongs_to :quota_definition
 
-    add_association_dependencies :domains => :nullify,
-      :spaces => :destroy, :service_instances => :destroy, :apps => :destroy, :owned_domain => :destroy
+    has_and_belongs_to_many :users
+    has_and_belongs_to_many :managers,
+      :join_table => "organizations_managers",
+      :association_foreign_key => "user_id",
+      :class_name => "VCAP::CloudController::Models::User"
+    has_and_belongs_to_many :billing_managers,
+      :join_table => "organizations_billing_managers",
+      :association_foreign_key => "user_id",
+      :class_name => "VCAP::CloudController::Models::User"
+    has_and_belongs_to_many :auditors,
+      :join_table => "organizations_auditors",
+      :association_foreign_key => "user_id",
+      :class_name => "VCAP::CloudController::Models::User"
 
-    define_user_group :users
-    define_user_group :managers, :reciprocal => :managed_organizations
-    define_user_group :billing_managers,
-                      :reciprocal => :billing_managed_organizations
-    define_user_group :auditors,
-                      :reciprocal => :audited_organizations
+    validates :name, :presence => true
+    validates :name, :uniqueness => { :case_sensitive => false }
+
+    before_create :add_inheritable_domains, :add_default_quota
+    after_save :register_start_events
 
     strip_attributes  :name
 
@@ -32,33 +63,43 @@ module VCAP::CloudController::Models
                       :auditor_guids, :domain_guids, :quota_definition_guid,
                       :can_access_non_public_plans
 
+    validate :only_admin_can_change_quota, :only_admin_can_enable_billing,
+             :only_admin_can_enable_private_plans
+
+    validate :only_admin_can_create_with_private_plans
+
+    def self.eager_load_associations
+      [:quota_definition]
+    end
+
     def billing_enabled?
       billing_enabled
     end
 
-    def before_create
-      add_inheritable_domains
-      add_default_quota
-      super
+    def only_admin_can_change_quota
+      only_admin_can_update(:quota_definition_id)
     end
 
-    def validate
-      validates_presence :name
-      validates_unique   :name
-      validate_only_admin_can_update(:billing_enabled)
-      validate_only_admin_can_update(:can_access_non_public_plans)
-      validate_only_admin_can_update(:quota_definition_id)
-      validate_only_admin_can_enable_on_new(:can_access_non_public_plans)
+    def only_admin_can_enable_billing
+      only_admin_can_update(:billing_enabled)
     end
 
-    def validate_only_admin_can_enable_on_new(field_name)
-      if new? && !!public_send(field_name)
+    def only_admin_can_enable_private_plans
+      only_admin_can_update(:can_access_non_public_plans)
+    end
+
+    def only_admin_can_create_with_private_plans
+      only_admin_can_enable_on_new(:can_access_non_public_plans)
+    end
+
+    def only_admin_can_enable_on_new(field_name)
+      if new_record? && !!public_send(field_name)
         require_admin_for(field_name)
       end
     end
 
-    def validate_only_admin_can_update(field_name)
-      if !new? && column_changed?(field_name)
+    def only_admin_can_update(field_name)
+      if !new_record? && send(:"#{field_name}_changed?")
         require_admin_for(field_name)
       end
     end
@@ -66,28 +107,6 @@ module VCAP::CloudController::Models
     def require_admin_for(field_name)
       unless VCAP::CloudController::SecurityContext.current_user_is_admin?
         errors.add(field_name, :not_authorized)
-      end
-    end
-
-    def before_save
-      super
-      if column_changed?(:billing_enabled) && billing_enabled?
-         @is_billing_enabled = true
-      end
-    end
-
-    def after_save
-      super
-      # We cannot start billing events without the guid being assigned to the org.
-      if @is_billing_enabled
-        OrganizationStartEvent.create_from_org(self)
-        # retroactively emit start events for services
-        spaces.map(&:service_instances).flatten.each do |si|
-          ServiceCreateEvent.create_from_service_instance(si)
-        end
-        spaces.map(&:apps).flatten.each do |app|
-          AppStartEvent.create_from_app(app) if app.started?
-        end
       end
     end
 
@@ -101,8 +120,9 @@ module VCAP::CloudController::Models
     end
 
     def add_inheritable_domains
+      # TODO AR: optimize
       Domain.shared_domains.each do |d|
-        add_domain_by_guid(d.guid)
+        add_domain(d)
       end
     end
 
@@ -117,28 +137,85 @@ module VCAP::CloudController::Models
         service_instances.count < quota_definition.total_services
     end
 
-    def service_plan_quota_remaining?(service_plan)
-      if service_plan && service_plan.trial_rds?
-        return quota_definition.free_rds && !spaces.collect(&:service_instances).flatten.collect(&:service_plan).collect(&:unique_id).include?("aws_rds_mysql_10mb")
+    def check_quota?(service_plan)
+      return check_quota_for_trial_db if service_plan.trial_db?
+      check_quota_without_trial_db(service_plan)
+    end
+
+    def check_quota_for_trial_db
+      if trial_db_allowed?
+        return {:type => :org, :name => :trial_quota_exceeded} if trial_db_allocated?
+      elsif paid_services_allowed?
+        return {:type => :org, :name => :paid_quota_exceeded} unless service_instance_quota_remaining?
+      else
+        return {:type => :service_plan, :name => :paid_services_not_allowed }
       end
-      false
+
+      {}
+    end
+
+    def check_quota_without_trial_db(service_plan)
+      if paid_services_allowed?
+        return {:type => :org, :name => :paid_quota_exceeded } unless service_instance_quota_remaining?
+      elsif service_plan.free
+        return {:type => :org, :name => :free_quota_exceeded } unless service_instance_quota_remaining?
+      else
+        return {:type => :service_plan, :name => :paid_services_not_allowed }
+      end
+
+      {}
     end
 
     def paid_services_allowed?
       quota_definition.non_basic_services_allowed
     end
 
+    def trial_db_allowed?
+      quota_definition.trial_db_allowed
+    end
+
+    # Does any service instance in any space have a trial DB plan?
+    def trial_db_allocated?
+      service_instances.each do |svc_instance|
+        return true if svc_instance.service_plan.trial_db?
+      end
+
+      false
+    end
+
     def memory_remaining
-      memory_used = apps_dataset.sum(:memory * :instances) || 0
+      memory_used = apps.inject(0) do |sum, app|
+        sum + app.memory * app.instances
+      end
+
       quota_definition.memory_limit - memory_used
     end
 
-    def self.user_visibility_filter(user)
-      user_visibility_filter_with_admin_override({
-        :managers => [user],
-        :users => [user],
-        :billing_managers => [user],
-        :auditors => [user] }.sql_or)
+    def self.user_visibility_filter(user, set = self)
+      set.joins(:users, :managers, :billing_managers, :auditors).where("
+        organizations_users.user_id = :user or
+          organizations_managers.user_id = :user or
+          organizations_billing_managers.user_id = :user or
+          organizations_auditors.user_id = :user
+      ", :user => user.id).uniq
+    end
+
+    private
+
+    def register_start_events
+      # We cannot start billing events without the guid being assigned to the org.
+      if billing_enabled_changed? && billing_enabled?
+        OrganizationStartEvent.create_from_org(self)
+
+        # retroactively emit start events for services
+        spaces.map(&:service_instances).flatten.each do |si|
+          ServiceCreateEvent.create_from_service_instance(si)
+        end
+
+        spaces.map(&:apps).flatten.each do |app|
+          AppStartEvent.create_from_app(app) if app.started?
+        end
+      end
     end
   end
 end

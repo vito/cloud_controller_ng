@@ -2,21 +2,36 @@
 
 require File.expand_path("../spec_helper", __FILE__)
 
-describe "Sequel::Plugins::VcapSerialization" do
-  before do
+describe VCAP::ModelSerialization do
+  before(:all) do
     reset_database
+    test_migration
+  end
 
-    db.create_table :test do
-      primary_key :id
+  after(:all) { reset_test }
 
-      Integer :val1
-      Integer :val2
-      Integer :val3
+  def test_migration
+    ActiveRecord::Migration.class_eval do
+      create_table :test do |t|
+        t.integer :val1
+        t.integer :val2
+        t.integer :val3
+      end
     end
+  end
 
-    @c = Class.new(Sequel::Model)
-    @c.plugin :vcap_serialization
-    @c.set_dataset(db[:test])
+  def reset_test
+    ActiveRecord::Migration.class_eval do
+      drop_table :test
+    end
+  end
+
+  before do
+    reset_test
+    test_migration
+
+    @c = Class.new(ActiveRecord::Base)
+    @c.table_name = "test"
   end
 
   describe "#default_order_by" do

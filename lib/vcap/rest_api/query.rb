@@ -38,7 +38,7 @@ module VCAP::RestAPI
     # @return [Sequel::Dataset]
     def filtered_dataset
       filter_args_from_query.inject(@ds) do |filter, cond|
-        filter.filter(cond)
+        filter.where(cond)
       end
     end
 
@@ -110,26 +110,24 @@ module VCAP::RestAPI
     end
 
     def clean_up_foreign_key(q_key, q_val)
-      return unless q_key =~ /(.*)_(gu)?id$/
+      return unless q_key =~ /(.*)_((gu)?id)$/
 
-      attr = $1
+      relation = $1.to_sym
+      other_attribute = $2.to_sym
 
-      f_key = if model.associations.include?(attr.to_sym)
-        attr.to_sym
-      elsif model.associations.include?(attr.pluralize.to_sym)
-        attr.pluralize.to_sym
+      attribute = :"#{relation}_id"
+
+      unless model.attribute_method?(attribute)
+        raise VCAP::Errors::BadQueryParameter.new(q_key) 
       end
 
-      # One could argue that this should be a server error.  It means
-      # that a query key came in for an attribute that is explicitly
-      # in the queryable_attributes, but is not a column or an association.
-      raise VCAP::Errors::BadQueryParameter.new(q_key) unless f_key
+      return { attribute => q_val.to_i } if other_attribute == :id
 
-      other_model = model.association_reflection(f_key).associated_class
-      id_key = other_model.columns.include?(:guid) ? :guid : :id
-      f_val = other_model.filter(id_key => q_val)
+      other_model = model.reflections[relation].klass
 
-      { f_key => f_val }
+      raise VCAP::Errors::BadQueryParameter.new(q_key) unless other_model
+
+      { attribute => other_model.find_by_guid(q_val) }
     end
 
     TINYINT_TYPE = "tinyint(1)".freeze
@@ -138,17 +136,18 @@ module VCAP::RestAPI
     # Sequel uses tinyint(1) to store booleans in Mysql.
     # Mysql does not support using 't'/'f' for querying.
     def clean_up_boolean(q_key, q_val)
-      column = model.db_schema[q_key.to_sym]
-
-      if column[:db_type] == TINYINT_TYPE
-        q_val = TINYINT_FROM_TRUE_FALSE.fetch(q_val, q_val)
+      case q_val
+      when /t(rue)?/i, "1"
+        true
+      when /f(alse)?/i, "0"
+        false
+      else
+        raise VCAP::Errors::BadQueryParameter.new(q_key)
       end
-
-      q_val
     end
 
     def clean_up_datetime(q_val)
-      Time.parse(q_val).localtime
+      Time.parse(q_val)
     end
 
     def clean_up_integer(q_val)
@@ -161,8 +160,8 @@ module VCAP::RestAPI
 
     def column_type(query_key)
       return :foreign_key if query_key =~ /(.*)_(gu)?id$/
-      column = model.db_schema[query_key.to_sym]
-      column && column[:type]
+      column = model.columns_hash[query_key.to_s]
+      column && column.type
     end
 
     attr_accessor :model, :access_filter, :queryable_attributes, :query

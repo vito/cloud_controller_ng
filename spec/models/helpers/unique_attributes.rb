@@ -41,9 +41,7 @@ module VCAP::CloudController::ModelSpecHelper
             end
 
             it "should succeed" do
-              obj = described_class.create do |instance|
-                instance.set_all(dup_opts)
-              end
+              obj = described_class.create(dup_opts)
               obj.should be_valid
             end
           end
@@ -60,25 +58,10 @@ module VCAP::CloudController::ModelSpecHelper
         context "with duplicate #{desc}" do
           let(:column_list) do
             opts[:unique_attributes].map do |v|
-              if described_class.associations.include?(v.to_sym)
+              if described_class.reflections.key?(v.to_sym)
                 v = v.to_s.concat("_id")
               end
               v
-            end
-          end
-
-          let(:sequel_exception_match) do
-            "#{column_list.join(" and ")} unique"
-          end
-
-          let(:db_exception_match) do
-            case described_class.db.database_type
-            when :mysql
-              "Duplicate entry"
-            when :sqlite
-              "columns? #{column_list.join(", ")} .* not unique".sub("uaa_id", "guid")
-            else
-              ".*"
             end
           end
 
@@ -96,24 +79,22 @@ module VCAP::CloudController::ModelSpecHelper
             orig_opts
           end
 
-          it "should fail due to Sequel validations" do
+          it "should fail due to validations" do
             # TODO: swap out everything but the unique entries for more
             # accurate testing
             expect {
-              described_class.create do |instance|
-                instance.set_all(dup_opts)
-              end
-            }.to raise_error Sequel::ValidationFailed, /#{sequel_exception_match}/
+              described_class.new(dup_opts).save!
+            }.to raise_error ActiveRecord::RecordInvalid
           end
 
           unless opts[:skip_database_constraints]
             it "should fail due to database integrity checks" do
               expect {
                 described_class.new do |instance|
-                  instance.set_all(dup_opts)
+                  instance.update_attributes(dup_opts)
                   instance.valid?  # run validations but ignore results
                 end.save(:validate => false)
-              }.to raise_error Sequel::DatabaseError, /#{db_exception_match}/
+              }.to raise_error ActiveRecord::RecordNotUnique
             end
           end
         end

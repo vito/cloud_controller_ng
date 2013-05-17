@@ -1,54 +1,45 @@
 # Copyright (c) 2009-2012 VMware, Inc.
 
 module VCAP::CloudController::Models
-  class User < Sequel::Model
-    no_auto_guid
+  class User < ActiveRecord::Base
+    include CF::ModelRelationships
 
-    many_to_many      :organizations
+    has_and_belongs_to_many :organizations
 
-    many_to_one       :default_space, :key => :default_space_id,
-                      :class => "VCAP::CloudController::Models::Space"
+    has_and_belongs_to_many :managed_organizations,
+      :join_table => "organizations_managers",
+      :association_foreign_key => "organization_id",
+      :class_name => "VCAP::CloudController::Models::Organization"
 
-    many_to_many      :managed_organizations,
-                      :class => "VCAP::CloudController::Models::Organization",
-                      :join_table => "organizations_managers",
-                      :right_key => :organization_id, :reciprocal => :managers
+    has_and_belongs_to_many :billing_managed_organizations,
+      :join_table => "organizations_billing_managers",
+      :association_foreign_key => "organization_id",
+      :class_name => "VCAP::CloudController::Models::Organization"
 
-    many_to_many      :billing_managed_organizations,
-                      :class => "VCAP::CloudController::Models::Organization",
-                      :join_table => "organizations_billing_managers",
-                      :right_key => :organization_id,
-                      :reciprocal => :billing_managers
+    has_and_belongs_to_many :audited_organizations,
+      :join_table => "organizations_auditors",
+      :association_foreign_key => "organization_id",
+      :class_name => "VCAP::CloudController::Models::Organization"
 
-    many_to_many      :audited_organizations,
-                      :class => "VCAP::CloudController::Models::Organization",
-                      :join_table => "organizations_auditors",
-                      :right_key => :organization_id, :reciprocal => :auditors
+    belongs_to :default_space,
+      :foreign_key => "default_space_id",
+      :class_name => "VCAP::CloudController::Models::Space"
 
-    many_to_many      :spaces,
-                      :class => "VCAP::CloudController::Models::Space",
-                      :join_table => "spaces_developers",
-                      :right_key => :space_id, :reciprocal => :developers
+    has_and_belongs_to_many :spaces,
+      :join_table => "spaces_developers",
+      :foreign_key => "user_id"
 
-    many_to_many      :managed_spaces,
-                      :class => "VCAP::CloudController::Models::Space",
-                      :join_table => "spaces_managers",
-                      :right_key => :space_id, :reciprocal => :managers
+    has_and_belongs_to_many :managed_spaces,
+      :join_table => "spaces_managers",
+      :association_foreign_key => "space_id",
+      :class_name => "VCAP::CloudController::Models::Space"
 
-    many_to_many      :audited_spaces,
-                      :class => "VCAP::CloudController::Models::Space",
-                      :join_table => "spaces_auditors",
-                      :right_key => :space_id, :reciprocal => :auditors
+    has_and_belongs_to_many :audited_spaces,
+      :join_table => "spaces_auditors",
+      :association_foreign_key => "space_id",
+      :class_name => "VCAP::CloudController::Models::Space"
 
-    add_association_dependencies :organizations => :nullify
-    add_association_dependencies :managed_organizations => :nullify
-    add_association_dependencies :audited_spaces => :nullify
-    add_association_dependencies :billing_managed_organizations => :nullify
-    add_association_dependencies :audited_organizations => :nullify
-    add_association_dependencies :spaces => :nullify
-    add_association_dependencies :managed_spaces => :nullify
-
-    default_order_by  :id
+    validates :guid, :presence => true, :uniqueness => true
 
     export_attributes :admin, :active, :default_space_guid
 
@@ -62,11 +53,6 @@ module VCAP::CloudController::Models
                       :audited_space_guids,
                       :default_space_guid
 
-    def validate
-      validates_presence :guid
-      validates_unique   :guid
-    end
-
     def admin?
       admin
     end
@@ -76,7 +62,7 @@ module VCAP::CloudController::Models
     end
 
     def can_access_non_public_plans?
-      organizations_dataset.filter(:can_access_non_public_plans => true).count > 0
+      organizations.exists?(:can_access_non_public_plans => true)
     end
   end
 end

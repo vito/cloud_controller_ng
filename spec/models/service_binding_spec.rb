@@ -147,7 +147,7 @@ module VCAP::CloudController
 
           expect {
             Models::ServiceInstance.db.transaction do
-              binding.update(:name => "newname")
+              binding.update_attributes(:name => "newname")
               raise "something bad"
             end
           }.to raise_error
@@ -178,7 +178,7 @@ module VCAP::CloudController
 
       it "should trigger restaging when creating a binding" do
         Models::ServiceBinding.make(:app => app, :service_instance => service_instance)
-        app.needs_staging?.should be_true
+        app.reload.needs_staging?.should be_true
       end
 
       it "should trigger restaging when directly destroying a binding" do
@@ -187,8 +187,7 @@ module VCAP::CloudController
         app.needs_staging?.should be_false
 
         binding.destroy
-        app.refresh
-        app.needs_staging?.should be_true
+        app.reload.needs_staging?.should be_true
       end
 
       it "should trigger restaging when indirectly destroying a binding" do
@@ -197,7 +196,7 @@ module VCAP::CloudController
         app.needs_staging?.should be_false
 
         app.remove_service_binding(binding)
-        app.needs_staging?.should be_true
+        app.reload.needs_staging?.should be_true
       end
     end
   end

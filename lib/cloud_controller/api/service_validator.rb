@@ -6,10 +6,10 @@ module VCAP::CloudController
 
       raise Errors::NotAuthorized unless label && provider && token
 
-      svc_auth_token = Models::ServiceAuthToken[
+      svc_auth_token = Models::ServiceAuthToken.where(
         :label => label,
         :provider => provider,
-      ]
+      ).first
 
       unless svc_auth_token && svc_auth_token.token_matches?(token)
         raise Errors::NotAuthorized

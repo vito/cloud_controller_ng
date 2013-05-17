@@ -26,11 +26,11 @@ module VCAP::CloudController
     query_parameters :name, :organization_guid, :developer_guid, :app_guid
 
     def self.translate_validation_exception(e, attributes)
-      name_errors = e.errors.on([:organization_id, :name])
-      if name_errors && name_errors.include?(:unique)
+      name_errors = e.record.errors[:name]
+      if name_errors && name_errors.include?(:taken)
         Errors::SpaceNameTaken.new(attributes["name"])
       else
-        Errors::SpaceInvalid.new(e.errors.full_messages)
+        Errors::SpaceInvalid.new(e.record.errors.full_messages)
       end
     end
   end
